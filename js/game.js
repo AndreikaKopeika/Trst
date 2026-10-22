@@ -133,6 +133,8 @@ export class Game {
     this.enemyUnder = false;
     this.ping = 0; this.pingT = 0;
     this.botSeq = 1000;
+    this.pidSeq = 1; this.n2p = new Map(); this.p2n = new Map();
+    this.snapFullT = 0;
     this.lastHurtSound = 0;
     this.diffChunks = [];
     this.ready = false;
@@ -191,10 +193,40 @@ export class Game {
   }
 
   startClient(name, team) {
-    this.net.on('msg', (m) => this.onEvent(m));
-    this.net.on('close', () => this.o.onExit && this.o.onExit('Связь с хостом потеряна'));
-    this.net.send({ t: 'hello', name, team });
     this.myName = name; this.myTeam = team;
+    this.token = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    this.attachNet(this.net);
+    this.net.send({ t: 'hello', name, team, token: this.token });
+  }
+  attachNet(net) {
+    net.on('msg', (m) => { if (net === this.net) this.onEvent(m); });
+    net.on('close', () => { if (net === this.net) this.reconnect(); });
+  }
+  // обрыв связи: пробуем вернуться в ту же игру тем же игроком
+  async reconnect() {
+    if (this.reconnecting || this.disposed) return;
+    this.reconnecting = true;
+    this.hud.banner('СВЯЗЬ ПОТЕРЯНА', 'warn', 60, 'Переподключаемся…');
+    const old = this.net;
+    for (let i = 0; i < 6 && !this.disposed; i++) {
+      try {
+        const net = this.o.createNet();
+        await net.start(this.o.code, (t) => this.hud.banner('СВЯЗЬ ПОТЕРЯНА', 'warn', 60, t));
+        if (this.disposed) { net.close(); return; }
+        try { old.close(); } catch (e) { /* ignore */ }
+        this.net = net; this.via = net.mode || '';
+        this.attachNet(net);
+        this.rejoined = true;
+        net.send({ t: 'hello', name: this.myName, team: this.myTeam, token: this.token });
+        this.reconnecting = false;
+        return;
+      } catch (e) {
+        this.hud.banner('СВЯЗЬ ПОТЕРЯНА', 'warn', 60, `Попытка ${i + 2} из 6…`);
+        await new Promise(r => setTimeout(r, 2500));
+      }
+    }
+    this.reconnecting = false;
+    if (!this.disposed && this.o.onExit) this.o.onExit('Связь с хостом потеряна');
   }
 
   afterStart() {
@@ -749,16 +781,15 @@ export class Game {
 
   // ===================== ХОСТ =====================
   handleMsg(cid, m) {
-    const p = this.players.get(cid);
-    switch (m.t) {
-      case 'hello': return this.hostJoin(cid, m);
-      case 'ping': this.net.sendTo(cid, { t: 'pong', s: m.s }); return;
-    }
-    if (!p) return;
+    if (m.t === 'hello') return this.hostJoin(cid, m);
+    if (m.t === 'ping') { this.net.sendTo(cid, { t: 'pong', s: m.s }); return; }
+    const pid = cid === this.myId ? this.myId : this.n2p.get(cid);
+    const p = pid === undefined ? null : this.players.get(pid);
+    if (!p || p.gone) return;
     switch (m.t) {
       case 'st': {
         const s = m.p;
-        p.tpos.set(s[0], s[1], s[2]); p.tyaw = s[3]; p.tpitch = s[4];
+        this.pushSample(p, s[0], s[1], s[2], s[3], s[4]);
         if (p.weapon !== s[5]) { p.weapon = s[5]; p.model.setWeapon(s[5]); }
         p.flags = s[6];
         if (s[7]) { p.bb = s[7]; p.model.setBuildBlock(s[7]); }
@@ -766,37 +797,36 @@ export class Game {
       }
       case 'shot':
         if (!p.alive) return;
-        this.broadcast({ t: 'shot', s: cid, w: m.w, e: m.e }, cid);
-        if (cid !== this.myId) this.renderShot(p, m.w, m.e, false);
+        this.broadcast({ t: 'shot', s: pid, w: m.w, e: m.e }, cid);
+        if (pid !== this.myId) this.renderShot(p, m.w, m.e, false);
         break;
       case 'shotfx':
-        this.broadcast({ t: 'shotfx', s: cid, w: m.w }, cid);
-        if (cid !== this.myId) this.onEvent({ t: 'shotfx', s: cid, w: m.w });
+        this.broadcast({ t: 'shotfx', s: pid, w: m.w }, cid);
+        if (pid !== this.myId) this.onEvent({ t: 'shotfx', s: pid, w: m.w });
         break;
       case 'hit': {
         const v = this.players.get(m.v);
         if (!v || !p.alive) return;
-        const dmg = Math.min(m.d, 260);
-        this.hostDamage(v, dmg, cid, m.w, !!m.h, p.pos);
+        this.hostDamage(v, Math.min(m.d, 260), pid, m.w, !!m.h, p.pos);
         break;
       }
       case 'egghit': {
         const e = this.eggs[m.team];
         if (!e || m.team === p.team || !p.alive) return;
-        this.hostEggDamage(e, Math.min(m.d, 120), cid);
+        this.hostEggDamage(e, Math.min(m.d, 120), pid);
         break;
       }
       case 'bd': {
         const l = m.l;
-        for (let i = 0; i < l.length; i += 2) this.hostBlockDamage(l[i], Math.min(l[i + 1], 600), cid);
+        for (let i = 0; i < l.length; i += 2) this.hostBlockDamage(l[i], Math.min(l[i + 1], 600), pid);
         break;
       }
       case 'place': this.hostPlace(p, m.x, m.y, m.z, m.b, cid); break;
       case 'proj': {
         if (!p.alive) return;
-        const msg = { id: m.id, k: m.k === 'rocket' ? 'rocket' : 'nade', p: m.p, v: m.v, o: cid };
+        const msg = { id: m.id, k: m.k === 'rocket' ? 'rocket' : 'nade', p: m.p, v: m.v, o: pid };
         this.broadcast({ t: 'proj', ...msg }, cid);
-        if (cid === this.myId) { const pr = this.projectiles.get(m.id); if (pr) pr.auth = true; }
+        if (pid === this.myId) { const pr = this.projectiles.get(m.id); if (pr) pr.auth = true; }
         else this.spawnProjectile(msg, true);
         break;
       }
@@ -804,15 +834,26 @@ export class Game {
   }
 
   hostJoin(cid, m) {
-    if (this.players.has(cid)) return;
+    if (this.n2p.has(cid)) return;
     const team = m.team === 1 ? 1 : 0;
     const name = String(m.name || 'Курица').slice(0, 14);
-    // заменяем бота той же команды
-    const bot = [...this.players.values()].find(p => p.isBot && p.team === team);
-    if (bot) this.removePlayer(bot.id);
-    const p = this.addPlayer(cid, name, team, false, false);
+    const token = typeof m.token === 'string' ? m.token.slice(0, 40) : '';
+    let p = token ? [...this.players.values()].find(q => !q.isBot && q.token === token) : null;
+    const back = !!p;
+    if (p) {
+      // тот же игрок вернулся после обрыва связи: старое соединение забываем
+      const old = this.p2n.get(p.id);
+      if (old !== undefined && old !== cid) { this.n2p.delete(old); try { this.net.kick(old); } catch (e) { /* ignore */ } }
+      p.gone = 0;
+    } else {
+      const bot = [...this.players.values()].find(q => q.isBot && q.team === team);
+      if (bot) this.removePlayer(bot.id);
+      p = this.addPlayer(this.pidSeq++, name, team, false, false);
+      p.token = token;
+    }
+    this.n2p.set(cid, p.id); this.p2n.set(p.id, cid);
     this.net.sendTo(cid, {
-      t: 'welcome', id: cid, seed: this.seed, roster: this.roster(), sc: this.score,
+      t: 'welcome', id: p.id, seed: this.seed, roster: this.roster(), sc: this.score,
       eggs: this.eggs.map(e => [e.hp, r2(e.pos.y)]), round: this.roundState,
     });
     const diff = this.world.diff();
@@ -820,15 +861,26 @@ export class Game {
     for (let i = 0; i < diff.length; i += CH) this.net.sendTo(cid, { t: 'diff', l: diff.slice(i, i + CH) });
     this.net.sendTo(cid, { t: 'ready' });
     this.emit({ t: 'roster', l: this.roster(), sc: this.score });
-    this.hud.feed(`🐔 <b>${esc(name)}</b> зашёл в игру`);
-    if (this.roundState === 'play') this.hostSpawn(p);
+    this.hud.feed(back ? `🔌 <b>${esc(p.name)}</b> вернулся` : `🐔 <b>${esc(name)}</b> зашёл в игру`);
+    if (this.roundState === 'play' && !p.alive) this.hostSpawn(p);
+    else if (p.alive) this.net.sendTo(cid, { t: 'spawn', id: p.id, x: r2(p.pos.x), y: r2(p.pos.y), z: r2(p.pos.z), yaw: r3(p.yaw) });
   }
   hostLeave(cid) {
-    const p = this.players.get(cid);
-    if (!p) return;
+    const pid = this.n2p.get(cid);
+    this.n2p.delete(cid);
+    if (pid === undefined) return;
+    if (this.p2n.get(pid) === cid) this.p2n.delete(pid);
+    const p = this.players.get(pid);
+    if (!p || p.gone) return;
+    // держим место 45 секунд — вдруг переподключится
+    p.gone = this.now; p.alive = false; p.respawnAt = 0;
+    this.emit({ t: 'gone', id: pid });
+    this.hud.feed(`📶 <b>${esc(p.name)}</b> потерял связь…`);
+  }
+  hostRemoveGone(p) {
     this.hud.feed(`👋 <b>${esc(p.name)}</b> вышел`);
     const team = p.team;
-    this.removePlayer(cid);
+    this.removePlayer(p.id);
     const bots = [...this.players.values()].filter(q => q.isBot && q.team === team).length;
     const humans = [...this.players.values()].filter(q => !q.isBot && q.team === team).length;
     if (bots + humans < this.botsPerTeam) { const b = this.addBot(team); this.hostSpawn(b); }
@@ -997,6 +1049,8 @@ export class Game {
     for (const p of this.players.values()) {
       if (p.alive && p.hp < MAX_HP && this.now - (p.lastHurt || 0) > 5) p.hp = Math.min(MAX_HP, p.hp + 12 * dt);
     }
+    // ушедшие игроки, которые не вернулись
+    for (const p of [...this.players.values()]) if (p.gone && this.now - p.gone > 45) this.hostRemoveGone(p);
     // возрождение
     if (this.roundState === 'play') {
       for (const p of this.players.values()) if (!p.alive && p.respawnAt && this.now >= p.respawnAt) { p.respawnAt = 0; this.hostSpawn(p); }
@@ -1018,9 +1072,14 @@ export class Game {
     if (this.netT <= 0) {
       this.netT = NET_DT;
       if (this.net) {
+        // только изменившиеся игроки, раз в секунду — все
+        const full = this.now > this.snapFullT;
+        if (full) this.snapFullT = this.now + 1;
         const list = [];
         for (const p of this.players.values()) {
-          list.push([p.id, r2(p.pos.x), r2(p.pos.y), r2(p.pos.z), r3(p.yaw), r3(p.pitch), p.weapon, Math.ceil(p.hp), this.flagsOf(p), p.res, p.isLocal ? this.buildBlockId() : (p.bb || 0)]);
+          const t = [p.id, r2(p.pos.x), r2(p.pos.y), r2(p.pos.z), r2(p.yaw), r2(p.pitch), p.weapon, Math.ceil(p.hp), this.flagsOf(p), p.res, p.isLocal ? this.buildBlockId() : (p.bb || 0)];
+          const key = t.join(',');
+          if (full || key !== p.snapKey) { list.push(t); p.snapKey = key; }
         }
         this.broadcast({ t: 'snap', p: list, e: this.eggs.map(e => [Math.ceil(e.hp), r2(e.pos.y)]) });
       }
@@ -1048,12 +1107,14 @@ export class Game {
       case 'diff': this.world.applyDiff(m.l); break;
       case 'ready': {
         this.mesher.rebuildAll();
+        if (this.rejoined) { this.rejoined = false; this.hud.banner('СНОВА В ИГРЕ!', 'warn', 2); }
         this.ready = true;
         this.afterStart();
         break;
       }
       case 'pong': this.ping = Math.round(performance.now() - m.s); break;
       case 'roster': this.onRoster(m); break;
+      case 'gone': { const p = this.players.get(m.id); if (p && !p.isLocal) { p.alive = false; p.model.root.visible = false; p.hist = []; } break; }
       case 'snap': this.onSnap(m); break;
       case 'blk': {
         const l = m.l;
@@ -1085,7 +1146,7 @@ export class Game {
         const p = this.players.get(m.id);
         if (!p) return;
         p.alive = true; p.hp = MAX_HP;
-        p.pos.set(m.x, m.y, m.z); p.tpos.copy(p.pos); p.vel.set(0, 0, 0);
+        p.pos.set(m.x, m.y, m.z); p.tpos.copy(p.pos); p.vel.set(0, 0, 0); p.hist = [];
         p.yaw = p.tyaw = m.yaw; p.pitch = p.tpitch = 0;
         p.model.root.visible = true;
         p.model.root.position.copy(p.pos);
@@ -1138,12 +1199,12 @@ export class Game {
       const p = this.players.get(s[0]);
       if (!p) continue;
       if (p.isLocal) { p.hp = s[7]; p.res = s[9]; continue; }
-      p.tpos.set(s[1], s[2], s[3]); p.tyaw = s[4]; p.tpitch = s[5];
+      this.pushSample(p, s[1], s[2], s[3], s[4], s[5]);
       if (p.weapon !== s[6]) { p.weapon = s[6]; p.model.setWeapon(s[6]); }
       p.hp = s[7]; p.flags = s[8]; p.res = s[9];
       if (s[10]) p.model.setBuildBlock(s[10]);
       const alive = !!(s[8] & 1);
-      if (alive && !p.alive) { p.alive = true; p.pos.copy(p.tpos); p.model.root.visible = true; }
+      if (alive && !p.alive) { p.alive = true; p.pos.set(s[1], s[2], s[3]); p.hist = []; this.pushSample(p, s[1], s[2], s[3], s[4], s[5]); p.model.root.visible = true; }
     }
     m.e.forEach((e, i) => {
       const egg = this.eggs[i];
@@ -1229,9 +1290,12 @@ export class Game {
 
   onBlockChange(x, y, z, prev, id) {
     if (prev && !id) {
-      this.fx.blockBreak(x, y, z, prev, true);
+      // при взрыве ломаются десятки блоков: полные обломки и звук — только у первых в кадре
+      const n = this.breaksThisFrame = (this.breakFrame === this.frameNo ? this.breaksThisFrame : 0) + 1;
+      this.breakFrame = this.frameNo;
+      this.fx.blockBreak(x, y, z, prev, n <= 6);
       const c = _v1.set(x + 0.5, y + 0.5, z + 0.5);
-      this.audio.blockBreak(0.5 * this.volAt(c), this.panAt(c), !!BLOCKS[prev].glass);
+      if (n <= 2) this.audio.blockBreak(0.5 * this.volAt(c), this.panAt(c), !!BLOCKS[prev].glass);
     } else if (!prev && id && !(this.me && this.me.isLocal && this.lastPlaced === this.world.idx(x, y, z))) {
       const c = _v1.set(x + 0.5, y + 0.5, z + 0.5);
       if (this.camera.position.distanceTo(c) < 30) this.audio.place(0.3 * this.volAt(c));
@@ -1306,9 +1370,61 @@ export class Game {
     this.audio.impact(true, 0.25 * this.volAt(pr.pos), this.panAt(pr.pos));
   }
 
+  // ===================== ИНТЕРПОЛЯЦИЯ =====================
+  // Состояния других игроков складываем в буфер и показываем их чуть "в прошлом",
+  // плавно переходя между полученными точками — так скачки пинга не видны.
+  pushSample(p, x, y, z, yaw, pitch) {
+    const t = performance.now() / 1000;
+    const h = p.hist || (p.hist = []);
+    const last = h[h.length - 1];
+    if (last) {
+      const gap = t - last.t;
+      p.ia = p.ia ? p.ia * 0.9 + gap * 0.1 : gap;
+      p.ij = p.ij ? p.ij * 0.9 + Math.abs(gap - p.ia) * 0.1 : 0.02;
+      if (Math.abs(last.x - x) + Math.abs(last.z - z) > 6) h.length = 0; // телепорт
+    }
+    h.push({ t, x, y, z, yaw, pitch });
+    if (h.length > 40) h.splice(0, h.length - 40);
+    p.tpos.set(x, y, z); p.tyaw = yaw; p.tpitch = pitch;
+  }
+  interpRemote(p, nowS, k) {
+    const h = p.hist;
+    if (!h || !h.length) {
+      p.pos.lerp(p.tpos, k); p.yaw = angleLerp(p.yaw, p.tyaw, k); p.pitch += (p.tpitch - p.pitch) * k;
+      return;
+    }
+    const ia = Math.min(p.ia || 0.07, 0.5), ij = p.ij || 0.02;
+    const delay = Math.max(0.06, Math.min(0.45, ia * 1.3 + ij * 2.5));
+    const rt = nowS - delay;
+    let i = h.length - 1;
+    while (i > 0 && h[i].t > rt) i--;
+    const a = h[i], b = h[i + 1];
+    let x, y, z, yaw, pitch;
+    if (rt <= a.t || !b && h.length === 1) { x = a.x; y = a.y; z = a.z; yaw = a.yaw; pitch = a.pitch; }
+    else if (b) {
+      const u = Math.min(1, (rt - a.t) / Math.max(0.001, b.t - a.t));
+      x = a.x + (b.x - a.x) * u; y = a.y + (b.y - a.y) * u; z = a.z + (b.z - a.z) * u;
+      yaw = angleLerp(a.yaw, b.yaw, u); pitch = a.pitch + (b.pitch - a.pitch) * u;
+    } else {
+      // новых данных нет: недолго продолжаем движение, если игрок явно бежал
+      const pr = h[h.length - 2];
+      const ex = nowS - a.t < ia * 2.5 ? Math.min(rt - a.t, 0.15) : 0;
+      const dtp = Math.max(0.001, a.t - pr.t);
+      x = a.x + (a.x - pr.x) / dtp * ex; y = a.y; z = a.z + (a.z - pr.z) / dtp * ex;
+      yaw = a.yaw; pitch = a.pitch;
+    }
+    // мягко подводим (без рывков при перестройке буфера)
+    const kk = Math.min(1, k * 2.2);
+    p.pos.x += (x - p.pos.x) * kk; p.pos.y += (y - p.pos.y) * kk; p.pos.z += (z - p.pos.z) * kk;
+    if (p.pos.distanceToSquared(_v2.set(x, y, z)) > 25) p.pos.set(x, y, z);
+    p.yaw = angleLerp(p.yaw, yaw, kk); p.pitch += (pitch - p.pitch) * kk;
+    while (h.length > 2 && h[1].t < rt - 0.5) h.shift();
+  }
+
   // ===================== КАДР =====================
   update(dt, inp) {
     this.now += dt;
+    this.frameNo = (this.frameNo || 0) + 1;
     this.audio.frame();
     if (!this.ready || !this.me) { this.renderer.render(this.scene, this.camera); return; }
     this.updateLocal(dt, inp);
@@ -1325,7 +1441,9 @@ export class Game {
       if (this.netT <= 0) {
         this.netT = NET_DT;
         const p = this.me;
-        this.net.send({ t: 'st', p: [r2(p.pos.x), r2(p.pos.y), r2(p.pos.z), r3(p.yaw), r3(p.pitch + p.recoil), p.weapon, this.flagsOf(p), p.weapon === W.BUILD ? this.buildBlockId() : undefined] });
+        const st = [r2(p.pos.x), r2(p.pos.y), r2(p.pos.z), r2(p.yaw), r2(p.pitch + p.recoil), p.weapon, this.flagsOf(p), p.weapon === W.BUILD ? this.buildBlockId() : 0];
+        const key = st.join(',');
+        if (key !== this.lastSt || this.now > this.stKeepT) { this.lastSt = key; this.stKeepT = this.now + 1; this.net.send({ t: 'st', p: st }); }
       }
       this.pingT -= dt;
       if (this.pingT <= 0) { this.pingT = 2; this.net.send({ t: 'ping', s: performance.now() }); }
@@ -1335,11 +1453,9 @@ export class Game {
     const k = 1 - Math.exp(-dt * 14);
     for (const p of this.players.values()) {
       if (!p.isLocal && !(p.isBot && this.isHost)) {
-        if (p.pos.distanceToSquared(p.tpos) > 25) p.pos.copy(p.tpos);
         _v1.copy(p.pos);
-        p.pos.lerp(p.tpos, k);
+        this.interpRemote(p, performance.now() / 1000, k);
         p.speed = p.speed * 0.8 + (Math.hypot(p.pos.x - _v1.x, p.pos.z - _v1.z) / Math.max(dt, 0.001)) * 0.2;
-        p.yaw = angleLerp(p.yaw, p.tyaw, k); p.pitch += (p.tpitch - p.pitch) * k;
         const f = p.flags || 0;
         p.firing = !!(f & 2); p.gliding = !!(f & 4); p.onGround = !!(f & 8);
         if (!(f & 1) && p.alive && this.isHost === false) { /* смерть приходит событием */ }
@@ -1416,6 +1532,9 @@ export class Game {
       const left = Math.max(0, Math.ceil(RESPAWN_TIME - (this.now - (this.deathAt || this.now))));
       h.death(true, this.deathBy || '', left);
     } else h.death(false);
+    this.roomT = (this.roomT || 0) - dt;
+    if (this.roomT > 0) { h.update(dt); return; }
+    this.roomT = 0.5;
     const code = this.o.code ? `Комната ${this.o.code}` : 'Офлайн';
     h.room(this.isHost ? `${code} · игроков ${[...this.players.values()].filter(q => !q.isBot).length}` : `${code} · пинг ${this.ping}мс${this.via ? ' · ' + this.via : ''}`);
     h.update(dt);
@@ -1435,6 +1554,7 @@ export class Game {
   }
 
   dispose() {
+    this.disposed = true;
     this.mesher.dispose();
     for (const p of this.players.values()) p.model.removeFrom(this.scene);
     this.players.clear();

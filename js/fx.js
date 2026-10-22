@@ -346,7 +346,7 @@ export class FX {
 
   blockBreak(x, y, z, id, many = true) {
     const def = BLOCKS[id]; if (!def) return;
-    const cnt = Math.ceil((many ? 9 : 4) * this.q);
+    const cnt = Math.ceil((many ? 9 : 2) * this.q);
     for (let i = 0; i < cnt; i++) {
       this.debris.spawn(x + rnd(0.15, 0.85), y + rnd(0.15, 0.85), z + rnd(0.15, 0.85), rnd(-4, 4), rnd(2, 7), rnd(-4, 4), rnd(0.12, 0.26), def.color, rnd(1.5, 3));
     }

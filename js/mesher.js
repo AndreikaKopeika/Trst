@@ -13,6 +13,14 @@ const FACES = [
   { n: [0, 0, -1], c: [[1, 0, 0], [0, 0, 0], [0, 1, 0], [1, 1, 0]], t: 2, s: 0.68 },
 ];
 const AO_CURVE = [0.42, 0.62, 0.8, 1.0];
+const PD = CHUNK + 2; // сторона копии чанка с рамкой
+// таблицы по id блока: непрозрачный / стекло / светится, UV каждой грани
+const OPQ = new Uint8Array(256), GLS = new Uint8Array(256), GLOW = new Uint8Array(256);
+const UVT = [];
+for (let id = 0; id < 256; id++) {
+  const d = BLOCKS[id];
+  OPQ[id] = d && !d.glass ? 1 : 0; GLS[id] = d && d.glass ? 1 : 0; GLOW[id] = d && d.glow ? 1 : 0;
+}
 
 // предвычисленные смещения соседей для AO
 for (const f of FACES) {
@@ -26,6 +34,19 @@ for (const f of FACES) {
     void off;
     return [s1, s2, cc];
   });
+}
+
+// смещения соседей в копии чанка
+const poff = (dx, dy, dz) => (dy * PD + dz) * PD + dx;
+const NOFF = FACES.map(f => poff(f.n[0], f.n[1], f.n[2]));
+for (const f of FACES) {
+  f.aoOff = new Int32Array(12);
+  f.ao.forEach((A, k) => A.forEach((o, j) => { f.aoOff[k * 3 + j] = poff(o[0], o[1], o[2]); }));
+  f.cr = f.n[1] > 0 ? 1.0 : 0.96; f.cb = f.n[1] > 0 ? 0.94 : 1.04;
+}
+for (let id = 0; id < 256; id++) for (let f = 0; f < 6; f++) {
+  const d = BLOCKS[id];
+  UVT[id * 6 + f] = d ? tileUV(d.tiles[FACES[f].t]) : null;
 }
 
 // Буферы растут по необходимости
@@ -50,6 +71,8 @@ export class Mesher {
     this.opaqueBuf = new Buf();
     this.glassBuf = new Buf();
     this.dirtyList = new Set();
+    this.pad = new Uint8Array(PD * PD * PD);
+    this.aoTmp = new Int32Array(4);
     this.lamps = [];
   }
   cidx(cx, cy, cz) { return (cy * CZ + cz) * CX + cx; }
@@ -93,53 +116,59 @@ export class Mesher {
     ob.reset(); gb.reset();
     const X0 = cx * CHUNK, Y0 = cy * CHUNK, Z0 = cz * CHUNK;
     const X1 = Math.min(SX, X0 + CHUNK), Y1 = Math.min(SY, Y0 + CHUNK), Z1 = Math.min(SZ, Z0 + CHUNK);
-    const getR = (x, y, z) => (x < 0 || z < 0 || x >= SX || z >= SZ || y < 0 || y >= SY) ? 0 : data[(y * SZ + z) * SX + x];
-    const occ = (x, y, z) => { const id = getR(x, y, z); return id && !BLOCKS[id].glass ? 1 : 0; };
-
-    for (let y = Y0; y < Y1; y++) for (let z = Z0; z < Z1; z++) for (let x = X0; x < X1; x++) {
-      const i = (y * SZ + z) * SX + x;
-      const id = data[i];
-      if (!id) continue;
-      const def = BLOCKS[id];
-      const isGlass = !!def.glass;
-      const dk = 1 - (dmg[i] / 255) * 0.6;
-      const glow = def.glow ? 1.25 : 1;
-      for (let f = 0; f < 6; f++) {
-        const F = FACES[f];
-        const nid = getR(x + F.n[0], y + F.n[1], z + F.n[2]);
-        if (nid) {
-          const nd = BLOCKS[nid];
-          if (!nd.glass) continue;           // сосед непрозрачный
-          if (isGlass) continue;             // стекло к стеклу
+    // копия чанка с рамкой в 1 блок: соседей берём без проверок границ
+    const pad = this.pad;
+    for (let ly = 0; ly < PD; ly++) {
+      const y = Y0 - 1 + ly;
+      for (let lz = 0; lz < PD; lz++) {
+        const z = Z0 - 1 + lz;
+        let o = (ly * PD + lz) * PD;
+        if (y < 0 || y >= SY || z < 0 || z >= SZ) { pad.fill(0, o, o + PD); continue; }
+        const row = (y * SZ + z) * SX;
+        for (let lx = 0; lx < PD; lx++, o++) {
+          const x = X0 - 1 + lx;
+          pad[o] = (x < 0 || x >= SX) ? 0 : data[row + x];
         }
-        if (y === 0 && F.n[1] === -1) continue;
+      }
+    }
+    const ao = this.aoTmp;
+    for (let y = Y0; y < Y1; y++) for (let z = Z0; z < Z1; z++) for (let x = X0; x < X1; x++) {
+      const pi = ((y - Y0 + 1) * PD + (z - Z0 + 1)) * PD + (x - X0 + 1);
+      const id = pad[pi];
+      if (!id) continue;
+      const isGlass = GLS[id] === 1;
+      const glowB = GLOW[id] === 1;
+      const i = (y * SZ + z) * SX + x;
+      const dk = 1 - (dmg[i] / 255) * 0.6;
+      const glow = glowB ? 1.25 : 1;
+      for (let f = 0; f < 6; f++) {
+        const nid = pad[pi + NOFF[f]];
+        if (nid && (OPQ[nid] || isGlass)) continue;   // сосед закрывает грань (или стекло к стеклу)
+        if (y === 0 && f === 3) continue;
+        const F = FACES[f];
         const buf = isGlass ? gb : ob;
         buf.ensure(4);
-        const uv = tileUV(def.tiles[F.t]);
+        const uv = UVT[id * 6 + f];
         const v0 = buf.v;
-        const ao = [0, 0, 0, 0];
+        const AOO = F.aoOff;
         for (let k = 0; k < 4; k++) {
           const c = F.c[k];
-          const A = F.ao[k];
           let a = 3;
-          if (!def.glow) {
-            const s1 = occ(x + A[0][0], y + A[0][1], z + A[0][2]);
-            const s2 = occ(x + A[1][0], y + A[1][1], z + A[1][2]);
-            const cc = occ(x + A[2][0], y + A[2][1], z + A[2][2]);
+          if (!glowB) {
+            const s1 = OPQ[pad[pi + AOO[k * 3]]], s2 = OPQ[pad[pi + AOO[k * 3 + 1]]], cc = OPQ[pad[pi + AOO[k * 3 + 2]]];
             a = (s1 && s2) ? 0 : 3 - (s1 + s2 + cc);
           }
           ao[k] = a;
-          const p = (buf.v) * 3;
+          const p = buf.v * 3;
           buf.pos[p] = x + c[0]; buf.pos[p + 1] = y + c[1]; buf.pos[p + 2] = z + c[2];
           const u = buf.v * 2;
           buf.uv[u] = (k === 0 || k === 3) ? uv[0] : uv[2];
           buf.uv[u + 1] = (k < 2) ? uv[1] : uv[3];
           const fct = F.s * AO_CURVE[a] * dk; // вершинные цвета линейные — возводим в квадрат
           const br = Math.min(255, Math.round(255 * fct * fct * glow));
-          // небольшой тёплый оттенок сверху, холодный снизу
-          buf.col[p] = Math.min(255, br * (F.n[1] > 0 ? 1.0 : 0.96));
+          buf.col[p] = Math.min(255, br * F.cr);
           buf.col[p + 1] = br;
-          buf.col[p + 2] = Math.min(255, br * (F.n[1] > 0 ? 0.94 : 1.04));
+          buf.col[p + 2] = Math.min(255, br * F.cb);
           buf.v++;
         }
         const ii = buf.i;

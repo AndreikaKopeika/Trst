@@ -28,8 +28,8 @@ export class Audio {
     return g;
   }
   ok(vol) {
-    if (!this.ctx || !this.enabled || vol < 0.01) return false;
-    if (this.frameVoices > 10) return false;
+    if (!this.ctx || !this.enabled || vol < 0.03) return false;
+    if (this.frameVoices >= 6) return false;
     this.frameVoices++;
     return true;
   }

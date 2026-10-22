@@ -29,7 +29,7 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 let pixelRatio = 1, dynScale = 1;
 function basePR() {
   const dpr = window.devicePixelRatio || 1;
-  return settings.quality === 'low' ? Math.min(dpr, 1) * 0.75 : settings.quality === 'med' ? Math.min(dpr, 1.35) : Math.min(dpr, 2);
+  return settings.quality === 'low' ? Math.min(dpr, 1) * 0.75 : settings.quality === 'med' ? Math.min(dpr, 1.25) : Math.min(dpr, 2);
 }
 function applySize() {
   pixelRatio = Math.max(0.5, basePR() * dynScale);
@@ -79,6 +79,7 @@ async function goFullscreen() {
 function makeGame(mode, net, code) {
   return new Game({
     renderer, hud, audio, input, settings, mode, net, code,
+    createNet: () => createClient(),
     onPause: () => setPause(true),
     onExit: (reason) => exitToMenu(reason),
     onReady: () => { loading(false); enterPlay(); },

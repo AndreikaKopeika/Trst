@@ -9,6 +9,9 @@ const ICE = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
   { urls: 'stun:stun.cloudflare.com:3478' },
+  { urls: 'stun:freestun.net:3478' },
+  { urls: 'turn:freestun.net:3478', username: 'free', credential: 'free' },
+  { urls: 'turns:freestun.net:5349', username: 'free', credential: 'free' },
   { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
   { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
   { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
@@ -149,7 +152,18 @@ async function connectBroker(clientId) {
 // Надёжный упорядоченный канал поверх потерь: seq + накопительные подтверждения + переотправка
 class Link {
   constructor(send) { this.send = send; this.seq = 0; this.out = []; this.next = 0; this.buf = new Map(); this.q = []; this.ackDirty = false; this.srtt = 800; this.stats = { sent: 0, resent: 0, pkts: 0 }; }
-  push(msg) { this.q.push(msg); }
+  push(msg) {
+    // от снимка состояния нужен только самый свежий — старые выбрасываем
+    if (msg.t === 'snap' || msg.t === 'st') {
+      for (let i = this.q.length - 1; i >= 0; i--) if (this.q[i].t === msg.t) { this.q.splice(i, 1); break; }
+    } else if (msg.t === 'shot' || msg.t === 'shotfx') {
+      // выстрелы — только визуал: не больше 8 за отправку
+      let n = 0; for (const m of this.q) if (m.t === 'shot' || m.t === 'shotfx') n++;
+      if (n >= 8) return;
+    }
+    this.q.push(msg);
+    if (msg.t === 'ping' || msg.t === 'pong') this.urgent = true;
+  }
   flush(now) {
     let sent = false;
     while (this.q.length) {
@@ -168,7 +182,9 @@ class Link {
       if (budget <= 0) break;
       if (now - o.t > rto * (1 + o.n)) { o.t = now; o.n++; budget--; this.send({ s: o.s, m: o.m, a: this.next }); this.stats.resent++; this.stats.pkts++; sent = true; }
     }
-    if (!sent && this.ackDirty) this.send({ a: this.next });
+    if (sent) this.lastSend = now;
+    else if (this.ackDirty && now - (this.lastSend || 0) > 250) { this.send({ a: this.next }); this.lastSend = now; }
+    else return;
     this.ackDirty = false;
   }
   receive(p, deliver) {
@@ -193,7 +209,7 @@ class RelayHost extends Emitter {
   async start(code) {
     this.code = code; this.base = TOPIC + code;
     await this.open();
-    this.timer = setInterval(() => this.tick(), 66);
+    this.timer = setInterval(() => this.tick(), 100);
     return code;
   }
   async open() {
@@ -230,12 +246,17 @@ class RelayHost extends Emitter {
   tick() {
     const now = performance.now();
     for (const peer of [...this.peers.values()]) {
-      if (now - peer.seen > 15000) { this.drop(peer); continue; }
+      if (now - peer.seen > 30000) { this.drop(peer); continue; }
       if (this.mq && this.mq.open) peer.link.flush(now);
     }
   }
   has(id) { return this.peers.has(id); }
-  sendTo(id, msg) { const p = this.peers.get(id); if (p) p.link.push(msg); }
+  sendTo(id, msg) {
+    const p = this.peers.get(id);
+    if (!p) return;
+    p.link.push(msg);
+    if (p.link.urgent && this.mq && this.mq.open) { p.link.urgent = false; p.link.flush(performance.now()); }
+  }
   broadcast(msg, except) { for (const [id, p] of this.peers) if (id !== except) p.link.push(msg); }
   kick(id) { const p = this.peers.get(id); if (p) this.drop(p); }
   close() { this.closed = true; clearInterval(this.timer); try { this.mq.close(); } catch (e) { /* ignore */ } }
@@ -245,32 +266,49 @@ class RelayClient extends Emitter {
   async start(code) {
     this.base = TOPIC + code;
     this.cid = 'c' + Math.random().toString(36).slice(2, 12);
-    this.mq = await connectBroker('cbc' + this.cid);
-    this.link = new Link((obj) => { obj.f = this.cid; this.mq.publish(this.base + '/h', JSON.stringify(obj)); });
+    this.link = new Link((obj) => { obj.f = this.cid; if (this.mq && this.mq.open) this.mq.publish(this.base + '/h', JSON.stringify(obj)); });
     this.seen = performance.now();
+    this.ok = false;
+    await this.open();
     await new Promise((resolve, reject) => {
-      let ok = false;
-      this.mq.onMessage = (t, txt) => {
-        let p; try { p = JSON.parse(txt); } catch (e) { return; }
-        this.seen = performance.now();
-        if (p.hi) { if (!ok) { ok = true; clearInterval(hello); resolve(); } return; }
-        this.link.receive(p, (m) => this.emit('msg', m));
-      };
-      this.mq.onClose = () => { if (ok) this.emit('close'); };
-      this.mq.subscribe(this.base + '/c/' + this.cid, 0);
-      const sayHello = () => this.mq.publish(this.base + '/h', JSON.stringify({ f: this.cid, hello: 1 }));
+      this.onHi = () => { if (!this.ok) { this.ok = true; clearInterval(hello); resolve(); } };
+      const sayHello = () => this.mq.open && this.mq.publish(this.base + '/h', JSON.stringify({ f: this.cid, hello: 1 }));
       setTimeout(sayHello, 300);
       const hello = setInterval(sayHello, 1200);
-      setTimeout(() => { if (!ok) { clearInterval(hello); reject(new Error('Комната не найдена. Проверь код и что у друга открыта игра (не свёрнута).')); } }, 9000);
+      setTimeout(() => { if (!this.ok) { clearInterval(hello); reject(new Error('Комната не найдена. Проверь код и что у друга открыта игра (не свёрнута).')); } }, 9000);
     });
     this.timer = setInterval(() => {
       const now = performance.now();
-      if (now - this.seen > 15000) { clearInterval(this.timer); this.emit('close'); return; }
-      if (this.mq.open) this.link.flush(now);
-    }, 66);
+      if (now - this.seen > 25000) { this.dead(); return; }
+      if (this.mq && this.mq.open) this.link.flush(now);
+    }, 100);
   }
-  send(msg) { if (this.link) this.link.push(msg); }
+  async open() {
+    const mq = await connectBroker('cbc' + this.cid + Math.random().toString(36).slice(2, 5));
+    this.mq = mq;
+    mq.onMessage = (t, txt) => {
+      let p; try { p = JSON.parse(txt); } catch (e) { return; }
+      this.seen = performance.now();
+      if (p.hi) { this.onHi && this.onHi(); return; }
+      this.link.receive(p, (m) => this.emit('msg', m));
+    };
+    mq.onClose = () => { if (!this.closed && this.ok) this.reopen(); };
+    mq.subscribe(this.base + '/c/' + this.cid, 0);
+  }
+  reopen() {
+    if (this.closed || this.reopening) return;
+    this.reopening = true;
+    setTimeout(() => this.open().then(() => { this.reopening = false; }).catch(() => { this.reopening = false; this.reopen(); }), 1000);
+  }
+  dead() { if (this.closed) return; this.closed = true; clearInterval(this.timer); try { this.mq.close(); } catch (e) { /* ignore */ } this.emit('close'); }
+  get rtt() { return this.link ? this.link.srtt : 0; }
+  send(msg) {
+    if (!this.link) return;
+    this.link.push(msg);
+    if (this.link.urgent && this.mq && this.mq.open) { this.link.urgent = false; this.link.flush(performance.now()); }
+  }
   close() {
+    this.closed = true;
     clearInterval(this.timer);
     try { this.mq.publish(this.base + '/h', JSON.stringify({ f: this.cid, bye: 1 })); } catch (e) { /* ignore */ }
     setTimeout(() => { try { this.mq.close(); } catch (e) { /* ignore */ } }, 100);
@@ -322,6 +360,7 @@ class HybridClient extends Emitter {
     this.sub.on('close', () => this.emit('close'));
   }
   send(msg) { this.sub && this.sub.send(msg); }
+  get relay() { return this.sub instanceof RelayClient; }
   close() { if (this.sub) this.sub.close(); }
 }
 
