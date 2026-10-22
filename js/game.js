@@ -306,14 +306,24 @@ export class Game {
   warmup() {
     const r = this.renderer;
     try {
-      if (this.post) this.post.begin();
+      // компилируем и один раз рисуем всё (в том числе скрытые вспышки/оружие) в крошечный буфер:
+      // первая отрисовка программы тоже дорогая — пусть случится под экраном загрузки
+      const rt = this.warmRT || (this.warmRT = new THREE.WebGLRenderTarget(16, 16));
+      if (this.post && this.post.main) rt.texture.colorSpace = this.post.main.texture.colorSpace;
+      const ac = r.autoClear;
       for (const sc of [this.scene, this.vm.scene]) {
         const hidden = [];
         sc.traverse(o => { if (!o.visible) { hidden.push(o); o.visible = true; } });
-        r.compile(sc, sc === this.scene ? this.camera : this.vm.camera);
+        const cam = sc === this.scene ? this.camera : this.vm.camera;
+        if (this.post) this.post.begin();
+        r.compile(sc, cam);
+        r.setRenderTarget(this.post ? this.post.main : rt);
+        r.autoClear = true;
+        r.render(sc, cam);
         for (const o of hidden) o.visible = false;
       }
-      r.setRenderTarget(null);
+      r.autoClear = ac;
+      if (this.post) this.post.end(); else r.setRenderTarget(null); // и шейдеры постобработки
     } catch (e) { /* не критично */ }
   }
 
@@ -1650,6 +1660,7 @@ export class Game {
       if (p.stepOff) m.root.position.y += p.stepOff;
       m.root.rotation.y = p.yaw;
       p.groundY = this.groundBelow(p);
+      m.setLod(p.alive && !p.isLocal && this.camera.position.distanceToSquared(p.pos) > 1600);
       m.animate(dt, { speed: p.speed || 0, onGround: p.onGround, gliding: p.gliding, pitch: p.isLocal ? p.pitch + p.recoil : p.pitch, dead: !p.alive, firing: p.firing, groundY: p.groundY });
       if (m.tag) m.tag.visible = p.alive && this.camera.position.distanceToSquared(p.pos) < 2500; // дальние ники не рисуем
     }
@@ -1683,7 +1694,7 @@ export class Game {
     this.skyDome.position.copy(this.camera.position);
     this.mesher.time.value = this.now;
     this.fx.update(dt);
-    this.mesher.update(this.mesher.dirtyList.size > 40 ? 8 : 3.5, this.camera.position);
+    this.mesher.update(this.mesher.dirtyList.size > 40 ? 6 : 2.5, this.camera.position);
     this.updateHUD(dt);
     this.updateShadowCam();
     if (this.post) this.post.begin();

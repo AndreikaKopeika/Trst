@@ -225,12 +225,39 @@ export class ChickenModel {
     mergeGroup(this.body); mergeGroup(this.head);
     for (const l of this.legs) mergeGroup(l);
     for (const w of this.wings) mergeGroup(w);
+    this.buildLod();
     // имя и тень
     if (showTag && name) { this.tag = nameTag(name, team); root.add(this.tag); }
     this.shadow = new THREE.Mesh(shadowGeo, shadowMat);
     this.shadow.scale.set(0.95, 1, 0.95);
     this.shadow.renderOrder = 1;
     this.phase = 0; this.flap = 0; this.kick = 0; this.deadT = 0; this.spinV = 0; this.hurtT = 0;
+  }
+  // упрощённая модель для дальних кур: всё тело одним мешем, без анимации частей
+  buildLod() {
+    this.root.updateMatrixWorld(true);
+    const inv = new THREE.Matrix4().copy(this.inner.matrixWorld).invert();
+    const parts = [];
+    for (const g of [this.body, this.head, ...this.legs, ...this.wings]) for (const c of g.children) if (c.isMesh && c.material === vcMat) parts.push(c);
+    let total = 0;
+    const geos = parts.map(m => { const geo = m.geometry.clone().applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, m.matrixWorld)); total += geo.attributes.position.count; return geo; });
+    const pos = new Float32Array(total * 3), nor = new Float32Array(total * 3), col = new Float32Array(total * 3);
+    let o = 0;
+    for (const g of geos) { const n = g.attributes.position.count; pos.set(g.attributes.position.array, o * 3); nor.set(g.attributes.normal.array, o * 3); col.set(g.attributes.color.array, o * 3); o += n; g.dispose(); }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    geo.computeBoundingSphere();
+    this.lod = new THREE.Mesh(geo, vcMat); this.lod.visible = false;
+    this.inner.add(this.lod);
+    this.far = false;
+  }
+  setLod(far) {
+    if (far === this.far) return;
+    this.far = far;
+    this.lod.visible = far;
+    this.body.visible = !far; for (const l of this.legs) l.visible = !far;
   }
   setWeapon(i) {
     if (i === this.weapon) return;
@@ -252,6 +279,13 @@ export class ChickenModel {
 
   // s: {speed, onGround, gliding, pitch, dead, firing, groundY}
   animate(dt, s) {
+    if (this.far) {
+      // далеко: только наклон оружия (для вспышек выстрела) и тень
+      this.gunPivot.rotation.x = s.pitch;
+      this.deadT = 0; this.inner.rotation.z = 0; this.inner.position.y = 0;
+      this.updShadow(s);
+      return;
+    }
     const k = Math.min(1, s.speed / 5);
     if (s.onGround && s.speed > 0.3) this.phase += dt * (6 + s.speed * 1.6);
     else this.phase *= 0.9;
@@ -279,11 +313,13 @@ export class ChickenModel {
     // мигание при попадании
     this.hurtT -= dt;
     this.inner.scale.setScalar(this.hurtT > 0 ? 1.08 : 1);
-    // тень
+    this.updShadow(s);
+  }
+  updShadow(s) {
     this.shadow.position.set(this.root.position.x, (s.groundY ?? this.root.position.y) + 0.02, this.root.position.z);
     const hgt = Math.max(0, this.root.position.y - (s.groundY ?? this.root.position.y));
     const sc = Math.max(0.3, 0.95 - hgt * 0.08);
     this.shadow.scale.set(sc, 1, sc);
-    this.shadow.visible = this.root.visible;
+    this.shadow.visible = this.root.visible && !this.shadowOff;
   }
 }
