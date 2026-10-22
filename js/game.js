@@ -1591,7 +1591,7 @@ export class Game {
     this.now += dt;
     this.frameNo = (this.frameNo || 0) + 1;
     this.audio.frame(dt);
-    if (!this.ready || !this.me) { this.renderer.setRenderTarget(null); this.renderer.render(this.scene, this.camera); return; }
+    if (!this.ready || !this.me) { if (this.post) this.post.begin(); this.renderer.render(this.scene, this.camera); if (this.post) this.post.end(); return; }
     this.updateLocal(dt, inp);
     // урон по блокам — пачкой
     if (this.pendingBd.size) {
