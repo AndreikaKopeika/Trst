@@ -20,6 +20,7 @@ const settings = {
   quality: store.get('quality', isTouch ? 'med' : 'high'),
   sound: store.get('sound', true),
   leftFire: store.get('leftFire', true),
+  view: store.get('view', 'first'),
 };
 
 const canvas = $('game');
@@ -172,7 +173,8 @@ function setPause(on) {
 }
 $('btnResume').addEventListener('click', () => { setPause(false); goFullscreen(); });
 $('btnLeave').addEventListener('click', () => exitToMenu(''));
-$('btnView').addEventListener('click', () => { if (game) { game.firstPerson = !game.firstPerson; $('btnView').textContent = 'Вид: ' + (game.firstPerson ? 'от 1-го лица' : 'от 3-го лица'); } });
+$('btnView').textContent = 'Вид: ' + (settings.view === 'third' ? 'от 3-го лица' : 'от 1-го лица');
+$('btnView').addEventListener('click', () => { if (game) game.setView(!game.firstPerson); });
 $('sens').value = settings.sens; $('sensVal').textContent = Number(settings.sens).toFixed(2);
 $('sens').addEventListener('input', (e) => { settings.sens = Number(e.target.value); input.sens = settings.sens; $('sensVal').textContent = settings.sens.toFixed(2); store.set('sens', settings.sens); });
 $('quality').value = settings.quality;

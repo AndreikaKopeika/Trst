@@ -8,6 +8,7 @@ import { FX } from './fx.js';
 import { WEAPONS, W, EXPLOSIONS, MAX_HP, EGG_HP, RESPAWN_TIME, START_RES, MINE_DMG } from './weapons.js';
 import { updateBot, BOT_NAMES, BOT_WEAPONS } from './bots.js';
 import { esc } from './hud.js';
+import { ViewModel } from './viewmodel.js';
 
 export const HW = 0.32, PH = 1.45, EYE = 1.32;
 const GRAV = 25, JUMP_V = 8.3, GLIDE_V = -2.3, SPEED = 5.4;
@@ -95,6 +96,8 @@ export class Game {
     this.mesher = new Mesher(this.world, scene, atlas.texture);
     this.world.onChange = (x, y, z) => this.mesher.markBlock(x, y, z);
     this.fx = new FX(scene, this.world, this.settings.quality);
+    this.vm = new ViewModel(this.renderer, atlas.texture);
+    this.lastLook = [0, 0];
     this.makeSky();
 
     // подсветка блока в режиме стройки
@@ -115,7 +118,7 @@ export class Game {
     this.roundState = 'play';
     this.netT = 0;
     this.shake = 0;
-    this.firstPerson = false;
+    this.firstPerson = this.settings.view !== 'third';
     this.pendingBlk = [];
     this.pendingBd = new Map();
     this.tntQueue = [];
@@ -190,6 +193,7 @@ export class Game {
 
   afterStart() {
     this.hud.buildHotbar(this.atlasURL, this.me.team);
+    this.vm.setTeam(this.me.team);
     this.me.model.setBuildBlock(this.buildBlockId());
     this.hud.show(true);
     if (this.o.onReady) this.o.onReady();
@@ -353,9 +357,10 @@ export class Game {
   renderShot(shooter, wi, ends, local) {
     const w = WEAPONS[wi];
     const m = shooter.model;
-    const muzzle = m.muzzleWorld(_v3);
+    const fp = local && this.fpActive();
+    const muzzle = fp ? this.vm.muzzleWorld(this.camera, _v3) : m.muzzleWorld(_v3);
     _v2.set(ends[0] - muzzle.x, ends[1] - muzzle.y, ends[2] - muzzle.z).normalize();
-    this.fx.muzzle(muzzle, _v2, w);
+    this.fx.muzzle(muzzle, _v2, w, fp);
     m.fire(w.kick);
     const vol = local ? 0.9 : this.volAt(muzzle);
     this.audio.shot(w.sound, vol, local ? 0 : this.panAt(muzzle));
@@ -411,7 +416,7 @@ export class Game {
     const p = this.me;
     if (t === 'pause') { this.o.onPause && this.o.onPause(); return; }
     if (t === 'score') { this.toggleScoreboard(); return; }
-    if (t === 'view') { this.firstPerson = !this.firstPerson; return; }
+    if (t === 'view') { this.setView(!this.firstPerson); return; }
     if (!p.alive) return;
     if (t === 'reload') this.startReload();
     else if (t === 'nade') this.throwNade();
@@ -427,6 +432,19 @@ export class Game {
       else this.switchWeapon((p.weapon + d + W.BUILD) % W.BUILD);
     }
   }
+  setView(fp) {
+    this.firstPerson = fp;
+    this.settings.view = fp ? 'first' : 'third';
+    try { localStorage.setItem('cb_view', JSON.stringify(this.settings.view)); } catch (e) { /* ignore */ }
+    const b = document.getElementById('btnView');
+    if (b) b.textContent = 'Вид: ' + (fp ? 'от 1-го лица' : 'от 3-го лица');
+  }
+  // виден ли сейчас вид от первого лица
+  fpActive() {
+    const p = this.me;
+    return !!p && p.alive && (this.firstPerson || (WEAPONS[p.weapon].scope && p.aiming));
+  }
+
   switchWeapon(i) {
     const p = this.me;
     if (i === p.weapon) return;
@@ -466,6 +484,7 @@ export class Game {
     p.yaw -= inp.lookX * sensK;
     p.pitch -= inp.lookY * sensK;
     p.pitch = Math.max(-1.5, Math.min(1.5, p.pitch));
+    this.lastLook[0] = inp.lookX; this.lastLook[1] = inp.lookY;
     for (const t of inp.taps) this.handleTap(t);
     if (!p.alive) { p.firing = false; return; }
     const w = WEAPONS[p.weapon];
@@ -563,7 +582,8 @@ export class Game {
     const spread = this.currentSpread();
     if (w.projectile) {
       const aim = this.trace(o.x, o.y, o.z, d.x, d.y, d.z, 200, p.id, false);
-      const muzzle = p.model.muzzleWorld(new THREE.Vector3());
+      const muzzle = this.fpActive() ? this.vm.muzzleWorld(this.camera, new THREE.Vector3()) : p.model.muzzleWorld(new THREE.Vector3());
+      if (this.fpActive()) this.vm.fire(p.weapon);
       const dir = new THREE.Vector3(aim.x, aim.y, aim.z).sub(muzzle);
       if (dir.length() < 2) dir.copy(d); dir.normalize();
       const v = dir.multiplyScalar(42);
@@ -571,7 +591,7 @@ export class Game {
       const msg = { id, k: 'rocket', p: [r2(muzzle.x), r2(muzzle.y), r2(muzzle.z)], v: [r2(v.x), r2(v.y), r2(v.z)], o: this.myId };
       this.spawnProjectile(msg);
       this.toHost({ t: 'proj', ...msg });
-      this.fx.muzzle(muzzle, d, w);
+      this.fx.muzzle(muzzle, d, w, this.fpActive());
       for (let i = 0; i < 8; i++) this.fx.dust.spawn(muzzle.x - d.x * 0.9, muzzle.y - d.y * 0.9, muzzle.z - d.z * 0.9, -d.x * 4 + Math.random() - 0.5, Math.random(), -d.z * 4 + Math.random() - 0.5, 1.2, 0.3, 1.4, 0.8, 0.8, 0.8, { drag: 3, alpha: 0.5 });
       p.model.fire(w.kick);
       this.audio.shot(w.sound, 0.9);
@@ -579,6 +599,7 @@ export class Game {
     } else {
       const hits = [];
       const ends = this.doShot(p, w, o.x, o.y, o.z, d.x, d.y, d.z, spread, (h, dmg) => hits.push([h, dmg]));
+      if (this.fpActive()) this.vm.fire(p.weapon);
       this.renderShot(p, p.weapon, ends, true);
       let anyHit = false, headHit = false;
       for (const [h, dmg] of hits) {
@@ -634,6 +655,7 @@ export class Game {
       this.toHost({ t: 'place', x: px, y: py, z: pz, b: bid });
       this.audio.place(0.6);
       p.model.fire(0.3);
+      this.vm.fire(W.BUILD);
       this.fx.blockBreak(px, py, pz, bid, false);
     }
     if (inp.mine && p.mineCool <= 0 && BLOCKS[hit.id].hp !== Infinity) {
@@ -643,6 +665,7 @@ export class Game {
       this.fx.impact(new THREE.Vector3(hit.x + 0.5 + hit.nx * 0.5, hit.y + 0.5 + hit.ny * 0.5, hit.z + 0.5 + hit.nz * 0.5), new THREE.Vector3(hit.nx, hit.ny, hit.nz), hit.id, key, 1);
       this.audio.impact(BLOCKS[hit.id].ric, 0.5);
       p.model.fire(0.4);
+      this.vm.fire(W.BUILD);
     }
   }
 
@@ -1061,7 +1084,7 @@ export class Game {
         p.model.root.position.copy(p.pos);
         this.fx.spawnPuff(p.pos, p.team);
         if (p.isLocal || p.isBot) { p.ammo = WEAPONS.map(w => w.mag); p.nades = 3; p.reloadT = -1; p.recoil = 0; p.recoilYaw = 0; p.spin = 0; }
-        if (p.isLocal) { this.hud.death(false); p.aiming = false; }
+        if (p.isLocal) { this.hud.death(false); p.aiming = false; this.vm.raise(); }
         break;
       }
       case 'proj': if (m.o !== this.myId) this.spawnProjectile(m); break;
@@ -1345,6 +1368,18 @@ export class Game {
     this.mesher.update(this.mesher.dirtyList.size > 40 ? 8 : 3.5, this.camera.position);
     this.updateHUD(dt);
     this.renderer.render(this.scene, this.camera);
+    // оружие от первого лица поверх мира
+    if (this.fpActive()) {
+      const p = this.me, w = WEAPONS[p.weapon];
+      if (w.build) this.vm.setBlock(this.buildBlockId());
+      this.vm.update(dt, {
+        weapon: p.weapon, aiming: p.aiming, speed: p.speed || 0, onGround: p.onGround, vy: p.vel.y,
+        lookX: this.lastLook[0], lookY: this.lastLook[1], firing: p.firing, alive: p.alive,
+        reload: p.reloadT >= 0 ? 1 - p.reloadT / p.reloadDur : -1,
+        spin: w.spinup ? p.spin / w.spinup : 0,
+      });
+      if (!(w.scope && this.vm.ads > 0.85)) this.vm.render();
+    } else this.vm.ads = 0;
   }
 
   updateHUD(dt) {
@@ -1358,7 +1393,7 @@ export class Game {
     }
     h.nades(p.nades);
     h.aim(p.aiming);
-    h.scope(p.alive && !!w.scope && p.aiming);
+    h.scope(p.alive && !!w.scope && p.aiming && this.vm.ads > 0.85);
     const spread = this.currentSpread();
     const px = Math.tan(spread) * innerHeight / (2 * Math.tan(this.camera.fov * Math.PI / 360));
     this.enemyCheckT -= dt;
@@ -1389,6 +1424,7 @@ export class Game {
   resize(w, h) {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    this.vm.resize(w, h);
   }
 
   dispose() {

@@ -293,9 +293,9 @@ export class FX {
 
   later(delay, fn) { this.delayed.push({ t: this.time + delay, fn }); }
 
-  muzzle(p, dir, w) {
+  muzzle(p, dir, w, fp = false) {
     const big = w.key === 'hmg' || w.key === 'sniper' || w.key === 'shotgun' || w.key === 'rpg';
-    this.flashes.add(p, big ? rnd(0.7, 1.0) : rnd(0.4, 0.6), 0.05, 0xffffff, 1.4);
+    if (!fp) this.flashes.add(p, big ? rnd(0.7, 1.0) : rnd(0.4, 0.6), 0.05, 0xffffff, 1.4);
     for (let i = 0; i < (big ? 6 : 3); i++) {
       const s = rnd(4, 12);
       this.glow.spawn(p.x, p.y, p.z, dir.x * s + rnd(-1.5, 1.5), dir.y * s + rnd(-1.5, 1.5), dir.z * s + rnd(-1.5, 1.5), rnd(0.04, 0.1), 0.12, 0.02, 1, 0.8, 0.4, { drag: 8 });
