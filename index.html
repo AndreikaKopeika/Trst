@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Chicken Blocks">
+<meta name="theme-color" content="#141824">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Chicken Blocks</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<!-- ============ ИГРОВОЙ ИНТЕРФЕЙС ============ -->
+<div id="hud" class="hidden">
+  <div id="scope"><div class="scope-ring"></div></div>
+  <div id="dmgFlash"></div>
+  <div id="dirInd"></div>
+
+  <div id="score">
+    <div class="team red"><div class="egg-ico">🥚</div><div class="eggbar"><i id="egg0"></i></div><b id="kills0">0</b></div>
+    <div class="vs">VS</div>
+    <div class="team blue"><b id="kills1">0</b><div class="eggbar"><i id="egg1"></i></div><div class="egg-ico">🥚</div></div>
+  </div>
+
+  <div id="topLeft" class="ui-allow">
+    <button data-btn="pause" class="mini">☰</button>
+    <button data-btn="score" class="mini">👥</button>
+    <div id="roomInfo"></div>
+  </div>
+  <div id="feed"></div>
+
+  <div id="crosshair"><i class="ch t"></i><i class="ch b"></i><i class="ch l"></i><i class="ch r"></i><i class="dot"></i></div>
+  <div id="hitmarker"><i></i><i></i><i></i><i></i></div>
+  <div id="banner"></div>
+  <div id="subBanner"></div>
+  <div id="dmgNums"></div>
+
+  <div id="death" class="hidden">
+    <div class="death-title">ТЕБЯ ОЩИПАЛИ!</div>
+    <div id="deathBy"></div>
+    <div id="deathT"></div>
+  </div>
+
+  <div id="bottom">
+    <div id="hotbar"></div>
+    <div id="resCount"></div>
+    <div id="hpWrap"><span class="hp-ico">❤</span><div id="hpBar"><i id="hpFill"></i></div><span id="hpText">100</span>
+      <div id="ammo"><b id="ammoMag">30</b><span id="ammoName">Автомат</span><div id="reloadBar"><i id="reloadFill"></i></div></div>
+    </div>
+    <div id="weapons"></div>
+  </div>
+
+  <!-- сенсорное управление -->
+  <div id="touchUI">
+    <div id="stickBase"><div id="stickKnob"></div></div>
+    <div class="btn big" id="btnFire" data-btn="fire"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2v6M12 16v6M2 12h6M16 12h6" stroke="currentColor" stroke-width="2"/></svg></div>
+    <div class="btn" id="btnFire2" data-btn="fire2"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="2" fill="currentColor"/></svg></div>
+    <div class="btn big hidden" id="btnPlace" data-btn="place"><span>＋</span><small>СТАВИТЬ</small></div>
+    <div class="btn hidden" id="btnMine" data-btn="mine"><span>⛏</span><small>ЛОМАТЬ</small></div>
+    <div class="btn" id="btnAim" data-btn="aim"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 5v4M12 15v4M5 12h4M15 12h4" stroke="currentColor" stroke-width="2"/></svg></div>
+    <div class="btn" id="btnJump" data-btn="jump"><svg viewBox="0 0 24 24"><path d="M12 4l7 8h-4v7H9v-7H5z" fill="currentColor"/></svg></div>
+    <div class="btn small" id="btnReload" data-btn="reload"><svg viewBox="0 0 24 24"><path d="M19 12a7 7 0 1 1-2.05-4.95" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M19 3v5h-5" fill="none" stroke="currentColor" stroke-width="2.4"/></svg></div>
+    <div class="btn small" id="btnNade" data-btn="nade"><b id="nadeCount"></b><svg viewBox="0 0 24 24"><circle cx="12" cy="14" r="6.5" fill="currentColor"/><rect x="10" y="4" width="4" height="4" fill="currentColor"/><path d="M14 5l4-2" stroke="currentColor" stroke-width="2"/></svg></div>
+    <div class="btn small" id="btnBuild" data-btn="build"><svg viewBox="0 0 24 24"><path d="M12 2l9 5v10l-9 5-9-5V7z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 12l9-5M12 12v10M12 12L3 7" stroke="currentColor" stroke-width="2"/></svg></div>
+  </div>
+
+  <div id="scoreboard" class="hidden ui-allow"><div class="sb-inner"><div class="sb-col" id="sb0"></div><div class="sb-col" id="sb1"></div></div><button data-btn="score" class="close">Закрыть</button></div>
+
+  <div id="pauseMenu" class="hidden ui-allow">
+    <div class="panel">
+      <h2>Пауза</h2>
+      <div id="pauseRoom"></div>
+      <label>Чувствительность <input type="range" id="sens" min="0.3" max="3" step="0.05" value="1"><span id="sensVal">1.0</span></label>
+      <label>Графика
+        <select id="quality"><option value="low">Низкая (быстро)</option><option value="med">Средняя</option><option value="high">Высокая</option></select>
+      </label>
+      <label class="row"><input type="checkbox" id="soundOn" checked> Звук</label>
+      <label class="row"><input type="checkbox" id="leftFire" checked> Кнопка огня слева</label>
+      <div class="buttons">
+        <button id="btnResume" class="primary">Продолжить</button>
+        <button id="btnView">Вид: от 3-го лица</button>
+        <button id="btnLeave" class="danger">Выйти в меню</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ МЕНЮ ============ -->
+<div id="menu">
+  <div class="menu-bg"></div>
+  <div class="menu-card">
+    <div class="logo"><span class="l1">CHICKEN</span><span class="l2">BLOCKS</span></div>
+    <div class="tagline">Куриные войны в мире из блоков · строй базу, защищай яйцо!</div>
+    <div class="menu-cols"><div class="menu-col">
+    <label class="field">Ник<input id="nick" maxlength="14" placeholder="Курица"></label>
+    <div class="field">Команда
+      <div class="teams">
+        <button class="teamBtn red sel" data-team="0">🔴 Красные</button>
+        <button class="teamBtn blue" data-team="1">🔵 Синие</button>
+      </div>
+    </div>
+    <label class="field">Боты в каждой команде
+      <select id="botCount"><option value="0">0</option><option value="1">1</option><option value="2" selected>2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select>
+    </label>
+    </div><div class="menu-col">
+    <div class="menu-buttons">
+      <button id="btnHost" class="primary">Создать комнату</button>
+      <div class="join-row"><input id="roomCode" maxlength="4" placeholder="КОД" autocapitalize="characters"><button id="btnJoin">Войти</button></div>
+      <button id="btnSolo">Играть с ботами (офлайн)</button>
+    </div>
+    <div id="menuStatus"></div>
+    <div id="hostShare" class="hidden">
+      <div>Код комнаты: <b id="shareCode"></b></div>
+      <button id="btnCopy">Скопировать ссылку для друга</button>
+    </div>
+    </div></div>
+    <details class="help">
+      <summary>Как играть</summary>
+      <p><b>Цель:</b> разбить Золотое Яйцо врага и защитить своё. Строй стены, бункеры, ловушки из ТНТ.</p>
+      <p><b>Телефон:</b> левая половина экрана — джойстик, правая — обзор. Кнопку огня можно тянуть, чтобы целиться на ходу. Удержание прыжка в воздухе — курица планирует.</p>
+      <p><b>Оружие:</b> автомат, пулемёт, снайперка, тяжёлый пулемёт, дробовик, базука, гранаты и режим стройки.</p>
+      <p><b>ПК:</b> WASD, мышь, пробел, R — перезарядка, G — граната, Q — стройка, 1–7 — оружие, F/ПКМ — прицел.</p>
+      <p><b>С другом:</b> один нажимает «Создать комнату» и отправляет ссылку/код, второй вводит код и жмёт «Войти».</p>
+    </details>
+  </div>
+</div>
+
+<div id="rotate"><div>📱↻<br>Поверни телефон горизонтально</div></div>
+<div id="loading" class="hidden"><div class="spinner"></div><div id="loadingText">Загрузка…</div></div>
+
+<script src="js/lib/peerjs.min.js"></script>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
