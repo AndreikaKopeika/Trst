@@ -2,7 +2,7 @@
 import * as THREE from './lib/three.module.min.js';
 import { World, SX, SY, SZ } from './world.js';
 import { Mesher } from './mesher.js';
-import { BLOCKS, B, BUILDABLE, buildAtlas, teamWool } from './blocks.js';
+import { BLOCKS, B, BUILDABLE, buildAtlas, teamWool, matOf } from './blocks.js';
 import { ChickenModel, TEAM_COLORS } from './chicken.js';
 import { FX } from './fx.js';
 import { WEAPONS, W, EXPLOSIONS, MAX_HP, EGG_HP, RESPAWN_TIME, START_RES, MINE_DMG } from './weapons.js';
@@ -99,9 +99,9 @@ export class Game {
     this.vm = new ViewModel(this.renderer, atlas.texture);
     this.vm.onEvent = (e) => {
       if (e === 'puff') return;
-      if (e === 'cluck') { this.audio.cluck(0.45, 0, 1.15); return; }
+      if (e === 'cluck') { this.audio.cluck(0.45, null, 1.15); return; }
       if (e === 'slam' || e === 'slap') this.shake = Math.min(1, this.shake + (e === 'slam' ? 0.35 : 0.2));
-      this.audio.reloadFx(e);
+      this.audio.reloadFx(e, this.me ? WEAPONS[this.me.weapon].key : '');
     };
     this.lastLook = [0, 0];
     this.makeSky();
@@ -244,7 +244,7 @@ export class Game {
     this.fx.clear();
     for (const e of this.eggs) this.scene.remove(e.mesh);
     this.eggs = this.world.info.eggs.map(e => this.makeEgg(e));
-    for (const pr of this.projectiles.values()) this.scene.remove(pr.mesh);
+    for (const pr of this.projectiles.values()) { this.scene.remove(pr.mesh); if (pr.snd) pr.snd.stop(); }
     this.projectiles.clear();
   }
 
@@ -400,8 +400,20 @@ export class Game {
     _v2.set(ends[0] - muzzle.x, ends[1] - muzzle.y, ends[2] - muzzle.z).normalize();
     this.fx.muzzle(muzzle, _v2, w, fp);
     m.fire(w.kick);
-    const vol = local ? 0.9 : this.volAt(muzzle);
-    this.audio.shot(w.sound, vol, local ? 0 : this.panAt(muzzle));
+    this.audio.gunshot(w.key, local ? null : muzzle, 1);
+    if (local && w.key !== 'rpg') this.audio.casing(_v1.set(shooter.pos.x + 0.4, shooter.pos.y, shooter.pos.z), w.key === 'shotgun');
+    // пуля прошла рядом с ухом — свист
+    if (!local && this.me && this.me.alive) {
+      const cam = this.camera.position;
+      for (let i = 0; i < Math.min(ends.length, 16); i += 8) {
+        const ex = ends[i] - muzzle.x, ey = ends[i + 1] - muzzle.y, ez = ends[i + 2] - muzzle.z;
+        const L2 = ex * ex + ey * ey + ez * ez; if (L2 < 1) continue;
+        const t = Math.max(0, Math.min(1, ((cam.x - muzzle.x) * ex + (cam.y - muzzle.y) * ey + (cam.z - muzzle.z) * ez) / L2));
+        const px = muzzle.x + ex * t, py = muzzle.y + ey * t, pz = muzzle.z + ez * t;
+        const dd = Math.hypot(px - cam.x, py - cam.y, pz - cam.z);
+        if (dd < 2.6 && t * Math.sqrt(L2) > 4) { this.audio.whiz({ x: px, y: py, z: pz }); break; }
+      }
+    }
     for (let i = 0; i < ends.length; i += 8) {
       const end = new THREE.Vector3(ends[i], ends[i + 1], ends[i + 2]);
       const kind = ends[i + 3];
@@ -416,18 +428,19 @@ export class Game {
           const cell = this.world.idx(Math.floor(end.x - n.x * 0.01), Math.floor(end.y - n.y * 0.01), Math.floor(end.z - n.z * 0.01));
           this.fx.impact(end, n, kind, cell, w.key === 'sniper' || w.key === 'hmg' ? 2 : 1);
           const def = BLOCKS[kind];
-          if (i === 0) this.audio.impact(def && def.ric, 0.35 * this.volAt(end), this.panAt(end));
+          if (i === 0) this.audio.impact(matOf(kind), end, 0.55);
           if (ric) {
             const refl = dir.clone().addScaledVector(n, -2 * dir.dot(n));
             refl.x += (Math.random() - 0.5) * 0.4; refl.y += Math.random() * 0.3; refl.z += (Math.random() - 0.5) * 0.4; refl.normalize();
             this.fx.ricochet(end, refl);
-            this.audio.ricochet(0.45 * this.volAt(end), this.panAt(end));
+            this.audio.ricochet(end, 0.55);
           }
         } else if (kind === -1) {
           this.fx.feathers(end, 6, 0);
+          if (i === 0) this.audio.fleshHit(end);
         } else if (kind === -2) {
           for (let k = 0; k < 6; k++) this.fx.glow.spawn(end.x, end.y, end.z, (Math.random() - 0.5) * 6, Math.random() * 5, (Math.random() - 0.5) * 6, 0.4, 0.09, 0.03, 1, 0.85, 0.3, { grav: 14 });
-          if (i === 0) this.audio.egg(0.5 * this.volAt(end), this.panAt(end));
+          if (i === 0) this.audio.egg(end, 0.6);
         }
       });
     }
@@ -511,7 +524,7 @@ export class Game {
     const id = this.myId + '_' + (this.projSeq++);
     this.spawnProjectile({ id, k: 'nade', p: [r2(o.x), r2(o.y), r2(o.z)], v: [r2(v.x), r2(v.y), r2(v.z)], o: this.myId });
     this.toHost({ t: 'proj', id, k: 'nade', p: [r2(o.x), r2(o.y), r2(o.z)], v: [r2(v.x), r2(v.y), r2(v.z)] });
-    this.audio.shot('throw', 0.6);
+    this.audio.reloadFx('whoosh');
     p.model.fire(0.5);
   }
 
@@ -536,7 +549,15 @@ export class Game {
     this.stepBody(p, dt, wx, wz, speed, inp.jump);
     if (p.jumped) this.audio.jump();
     if (p.gliding) { p.flapT -= dt; if (p.flapT <= 0) { p.flapT = 0.12; this.audio.flap(0.15); } }
-    if (!wasGround && p.onGround) this.audio.impact(false, 0.15);
+    if (!wasGround && p.onGround) this.audio.land(this.matUnder(p), Math.min(0.8, 0.3 + (this.fallSpeed || 0) * 0.04));
+    this.fallSpeed = p.onGround ? 0 : Math.max(this.fallSpeed || 0, -p.vel.y);
+    // шаги
+    if (p.onGround && Math.hypot(p.vel.x, p.vel.z) > 1.2) {
+      p.stepD = (p.stepD || 0) + Math.hypot(p.vel.x, p.vel.z) * dt;
+      if (p.stepD > 1.6) { p.stepD = 0; this.audio.step(this.matUnder(p), null, 0.28); }
+    }
+    // сердцебиение при малом здоровье
+    if (p.hp < 30) { this.beatT = (this.beatT || 0) - dt; if (this.beatT <= 0) { this.beatT = 0.85; this.audio.heartbeat(); } }
     p.speed = Math.hypot(p.vel.x, p.vel.z);
 
     p.cool -= dt; p.mineCool -= dt; p.nadeCool -= dt;
@@ -633,7 +654,7 @@ export class Game {
       this.fx.muzzle(muzzle, d, w, this.fpActive());
       for (let i = 0; i < 8; i++) this.fx.dust.spawn(muzzle.x - d.x * 0.9, muzzle.y - d.y * 0.9, muzzle.z - d.z * 0.9, -d.x * 4 + Math.random() - 0.5, Math.random(), -d.z * 4 + Math.random() - 0.5, 1.2, 0.3, 1.4, 0.8, 0.8, 0.8, { drag: 3, alpha: 0.5 });
       p.model.fire(w.kick);
-      this.audio.shot(w.sound, 0.9);
+      this.audio.gunshot('rpg', null, 1);
       this.toHost({ t: 'shotfx', w: p.weapon });
     } else {
       const hits = [];
@@ -692,7 +713,7 @@ export class Game {
       this.lastPlaced = this.world.idx(px, py, pz);
       p.res -= BLOCKS[bid].cost || 1;
       this.toHost({ t: 'place', x: px, y: py, z: pz, b: bid });
-      this.audio.place(0.6);
+      this.audio.place(matOf(bid), null, 0.55);
       p.model.fire(0.3);
       this.vm.fire(W.BUILD);
       this.fx.blockBreak(px, py, pz, bid, false);
@@ -702,7 +723,7 @@ export class Game {
       const key = this.world.idx(hit.x, hit.y, hit.z);
       this.pendingBd.set(key, (this.pendingBd.get(key) || 0) + MINE_DMG);
       this.fx.impact(new THREE.Vector3(hit.x + 0.5 + hit.nx * 0.5, hit.y + 0.5 + hit.ny * 0.5, hit.z + 0.5 + hit.nz * 0.5), new THREE.Vector3(hit.nx, hit.ny, hit.nz), hit.id, key, 1);
-      this.audio.impact(BLOCKS[hit.id].ric, 0.5);
+      this.audio.impact(matOf(hit.id), null, 0.5);
       p.model.fire(0.4);
       this.vm.fire(W.BUILD);
     }
@@ -1137,7 +1158,7 @@ export class Game {
         const mz = p.model.muzzleWorld(new THREE.Vector3());
         p.model.fire(1);
         this.fx.muzzle(mz, new THREE.Vector3(-Math.sin(p.yaw), 0, -Math.cos(p.yaw)), WEAPONS[m.w]);
-        this.audio.shot(WEAPONS[m.w].sound, this.volAt(mz), this.panAt(mz));
+        this.audio.gunshot(WEAPONS[m.w].key, mz, 1);
         break;
       }
       case 'hurt': this.onHurt(m); break;
@@ -1237,7 +1258,7 @@ export class Game {
       this.hud.hurt(m.d, rel);
       this.shake = Math.min(1, this.shake + m.d / 60);
       if (this.now - this.lastHurtSound > 0.15) { this.lastHurtSound = this.now; this.audio.hurt(); }
-    } else if (Math.random() < 0.3) this.audio.cluck(0.4 * this.volAt(at), this.panAt(at), 1.1);
+    } else if (Math.random() < 0.3) this.audio.cluck(0.45, at, 1.1);
   }
 
   onKill(m) {
@@ -1249,7 +1270,7 @@ export class Game {
       const at = _v1.copy(v.pos); at.y += 0.8;
       this.fx.feathers(at, 28, v.team);
       this.fx.flashes.add(at, 1.2, 0.15, 0xffffff, 1.5);
-      this.audio.cluck(0.8 * Math.max(0.3, this.volAt(at)), this.panAt(at), 0.9 + Math.random() * 0.3);
+      this.audio.cluck(0.8, at, 0.9 + Math.random() * 0.3);
     }
     const wn = typeof m.w === 'number' ? WEAPONS[m.w].short : m.w === 'tnt' ? 'ТНТ' : m.w === 'nade' ? 'ГРАНАТА' : '💥';
     const cls = (p) => p ? (p.team === 0 ? 'r' : 'b') : '';
@@ -1267,11 +1288,11 @@ export class Game {
 
   onBoom(m) {
     const pr = this.projectiles.get(m.pid);
-    if (pr) { this.scene.remove(pr.mesh); this.projectiles.delete(m.pid); }
+    if (pr) this.killProj(pr);
     const p = new THREE.Vector3(m.x, m.y, m.z);
     const E = EXPLOSIONS[m.k];
     this.fx.explosion(p, E.radius);
-    this.audio.explosion(Math.min(1, this.volAt(p) * 1.3 + 0.05), this.panAt(p));
+    this.audio.explosion(p, m.k !== 'nade');
     const d = this.camera.position.distanceTo(p);
     this.shake = Math.min(1.5, this.shake + Math.max(0, 1.2 - d / 25));
     // отбрасывание себя (ракетные прыжки!)
@@ -1295,14 +1316,26 @@ export class Game {
       this.breakFrame = this.frameNo;
       this.fx.blockBreak(x, y, z, prev, n <= 6);
       const c = _v1.set(x + 0.5, y + 0.5, z + 0.5);
-      if (n <= 2) this.audio.blockBreak(0.5 * this.volAt(c), this.panAt(c), !!BLOCKS[prev].glass);
+      if (n <= 2) this.audio.blockBreak(matOf(prev), c, 0.7);
     } else if (!prev && id && !(this.me && this.me.isLocal && this.lastPlaced === this.world.idx(x, y, z))) {
       const c = _v1.set(x + 0.5, y + 0.5, z + 0.5);
-      if (this.camera.position.distanceTo(c) < 30) this.audio.place(0.3 * this.volAt(c));
+      if (this.camera.position.distanceTo(c) < 30) this.audio.place(matOf(id), c, 0.4);
     }
   }
 
   // ===================== СНАРЯДЫ =====================
+  killProj(pr) {
+    this.scene.remove(pr.mesh); this.projectiles.delete(pr.id);
+    if (pr.snd) { pr.snd.stop(); pr.snd = null; }
+  }
+  // материал под ногами (для шагов)
+  matUnder(p) {
+    const w = this.world, x = Math.floor(p.pos.x), z = Math.floor(p.pos.z), y = Math.floor(p.pos.y - 0.05);
+    let id = w.get(x, y, z);
+    if (!id) id = w.get(Math.floor(p.pos.x + 0.3), y, z) || w.get(Math.floor(p.pos.x - 0.3), y, z) || w.get(x, y, Math.floor(p.pos.z + 0.3)) || w.get(x, y, Math.floor(p.pos.z - 0.3));
+    return matOf(id || 3);
+  }
+
   spawnProjectile(m, auth = false) {
     if (this.projectiles.has(m.id)) return;
     let mesh;
@@ -1321,13 +1354,14 @@ export class Game {
       id: m.id, k: m.k, pos: mesh.position, vel: new THREE.Vector3(m.v[0], m.v[1], m.v[2]), owner: m.o,
       life: m.k === 'rocket' ? 5 : 2.4, mesh, auth: auth || this.isHost, dead: false, trailT: 0,
     });
+    if (m.k === 'rocket') { const pr = this.projectiles.get(m.id); pr.snd = this.audio.rocketLoop(() => pr.pos); }
   }
 
   updateProjectiles(dt) {
     const w = this.world;
     for (const pr of [...this.projectiles.values()]) {
       pr.life -= dt;
-      if (pr.dead) { if (pr.life < -1) { this.scene.remove(pr.mesh); this.projectiles.delete(pr.id); } continue; }
+      if (pr.dead) { if (pr.life < -1) this.killProj(pr); continue; }
       let explode = false;
       if (pr.k === 'rocket') {
         pr.vel.y -= 2 * dt;
@@ -1358,16 +1392,16 @@ export class Game {
       }
       if (explode) {
         if (pr.auth && this.isHost) {
-          this.projectiles.delete(pr.id); this.scene.remove(pr.mesh);
+          this.killProj(pr);
           this.hostExplode(pr.pos.x, pr.pos.y, pr.pos.z, pr.k === 'rocket' ? 'rocket' : 'nade', pr.owner, pr.id);
-        } else { pr.dead = true; pr.mesh.visible = false; pr.life = 0; }
+        } else { pr.dead = true; pr.mesh.visible = false; pr.life = 0; if (pr.snd) { pr.snd.stop(); pr.snd = null; } }
       }
     }
   }
   nadeBounce(pr) {
     if (this.now - (pr.lastBounce || 0) < 0.1) return;
     pr.lastBounce = this.now;
-    this.audio.impact(true, 0.25 * this.volAt(pr.pos), this.panAt(pr.pos));
+    this.audio.impact('metal', pr.pos, 0.35);
   }
 
   // ===================== ИНТЕРПОЛЯЦИЯ =====================
@@ -1425,7 +1459,7 @@ export class Game {
   update(dt, inp) {
     this.now += dt;
     this.frameNo = (this.frameNo || 0) + 1;
-    this.audio.frame();
+    this.audio.frame(dt);
     if (!this.ready || !this.me) { this.renderer.render(this.scene, this.camera); return; }
     this.updateLocal(dt, inp);
     // урон по блокам — пачкой
@@ -1460,6 +1494,11 @@ export class Game {
         p.firing = !!(f & 2); p.gliding = !!(f & 4); p.onGround = !!(f & 8);
         if (!(f & 1) && p.alive && this.isHost === false) { /* смерть приходит событием */ }
       }
+      // шаги других кур рядом — слышно, кто подкрадывается
+      if (!p.isLocal && p.alive && p.onGround !== false && (p.speed || 0) > 1.2) {
+        p.stepD = (p.stepD || 0) + p.speed * dt;
+        if (p.stepD > 1.6) { p.stepD = 0; if (this.camera.position.distanceToSquared(p.pos) < 900) this.audio.step(this.matUnder(p), p.pos, 0.5); }
+      }
       const m = p.model;
       if (!p.alive && m.deadT >= 1 && this.now - (p.diedAt || 0) > 2.5) m.root.visible = false;
       if (p.alive) p.diedAt = this.now;
@@ -1485,6 +1524,8 @@ export class Game {
       e.egg.material.emissive.setHex(e.wob > 0.5 ? 0x664400 : 0x332200);
     }
     this.updateCamera(dt);
+    this.camera.updateMatrixWorld();
+    this.audio.setListener(this.camera);
     this.sunSprite.position.set(this.camera.position.x + 120, this.camera.position.y + 150, this.camera.position.z + 60);
     this.clouds.children.forEach(c => { c.position.x += dt * 1.2; if (c.position.x > 200) c.position.x = -100; });
     this.fx.update(dt);

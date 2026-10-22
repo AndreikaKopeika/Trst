@@ -206,3 +206,8 @@ export function blockIconStyle(id, atlasURL) {
   return `background-image:url(${atlasURL});background-size:${ATLAS_COLS * 100}% ${ATLAS_ROWS * 100}%;` +
     `background-position:${(col / (ATLAS_COLS - 1)) * 100}% ${(row / (ATLAS_ROWS - 1)) * 100}%;image-rendering:pixelated;`;
 }
+
+// Материал блока для звуков шагов и попаданий
+const MATS = { 1: 'grass', 2: 'soft', 3: 'stone', 4: 'sand', 5: 'wood', 6: 'grass', 7: 'wood', 8: 'stone', 9: 'stone', 10: 'metal',
+  11: 'glass', 12: 'soft', 13: 'soft', 14: 'stone', 15: 'sand', 16: 'wood', 17: 'sand', 18: 'stone', 19: 'wood', 20: 'sand', 21: 'glass' };
+export function matOf(id) { return (BLOCKS[id] && BLOCKS[id].mat) || MATS[id] || 'stone'; }

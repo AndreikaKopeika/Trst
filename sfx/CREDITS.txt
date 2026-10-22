@@ -1,0 +1,11 @@
+Звуки игры (все под лицензией CC0 — общественное достояние, указание авторства не обязательно,
+но мы благодарим авторов):
+
+- Выстрелы: "The Free Firearm Sound Library" (Prepared SFX Library), OpenGameArt.org, CC0
+  https://opengameart.org/content/the-free-firearm-sound-library
+  Использованы записи AK-47, SKS, Mosin Nagant, PPSh, Winchester Model 12 (нарезка, обработка).
+- Шаги и удары: Kenney "Impact Sounds", www.kenney.nl, CC0
+- Взрывы: "25 CC0 bang / firework SFX", OpenGameArt.org, CC0
+- Перезарядка: "Gun reload sounds", OpenGameArt.org, CC0
+
+Остальные звуки (свист пуль, рикошеты, ветер, курицы, интерфейс) синтезируются в браузере.

@@ -186,6 +186,10 @@ $('sens').value = settings.sens; $('sensVal').textContent = Number(settings.sens
 $('sens').addEventListener('input', (e) => { settings.sens = Number(e.target.value); input.sens = settings.sens; $('sensVal').textContent = settings.sens.toFixed(2); store.set('sens', settings.sens); });
 $('quality').value = settings.quality;
 $('quality').addEventListener('change', (e) => { settings.quality = e.target.value; store.set('quality', settings.quality); dynScale = 1; applySize(); if (game) game.applyQuality(settings.quality); });
+settings.volume = store.get('volume', 1);
+audio.setVolume(settings.volume);
+$('volume').value = settings.volume; $('volVal').textContent = Math.round(settings.volume * 100) + '%';
+$('volume').addEventListener('input', (e) => { settings.volume = Number(e.target.value); audio.setVolume(settings.volume); $('volVal').textContent = Math.round(settings.volume * 100) + '%'; store.set('volume', settings.volume); });
 $('soundOn').checked = settings.sound;
 $('soundOn').addEventListener('change', (e) => { settings.sound = e.target.checked; audio.enabled = settings.sound; store.set('sound', settings.sound); });
 $('leftFire').checked = settings.leftFire;
