@@ -173,6 +173,7 @@ export class Game {
     if (was !== r.shadowMap.enabled) this.scene.traverse(o => { if (o.material) [].concat(o.material).forEach(m => { m.needsUpdate = true; }); });
     for (const p of this.players.values()) this.modelShadows(p.model);
     this.updateLights();
+    if (this.ready) this.warmup();
   }
   modelShadows(m) {
     const on = this.renderer.shadowMap.enabled;
@@ -298,7 +299,22 @@ export class Game {
     this.vm.setTeam(this.me.team);
     this.me.model.setBuildBlock(this.buildBlockId());
     this.hud.show(true);
+    this.warmup();
     if (this.o.onReady) this.o.onReady();
+  }
+  // компилируем все шейдеры заранее (вспышки, взрывы, оружие) — без подлагиваний при первом выстреле
+  warmup() {
+    const r = this.renderer;
+    try {
+      if (this.post) this.post.begin();
+      for (const sc of [this.scene, this.vm.scene]) {
+        const hidden = [];
+        sc.traverse(o => { if (!o.visible) { hidden.push(o); o.visible = true; } });
+        r.compile(sc, sc === this.scene ? this.camera : this.vm.camera);
+        for (const o of hidden) o.visible = false;
+      }
+      r.setRenderTarget(null);
+    } catch (e) { /* не критично */ }
   }
 
   loadWorld(seed, map) {
@@ -433,14 +449,11 @@ export class Game {
       if (jump && !p.onGround && p.vel.y < GLIDE_V) { p.vel.y = GLIDE_V; p.gliding = true; }
     }
     if (p.vel.y < -40) p.vel.y = -40;
-    this.world.moveBody(p, dt, HW, PH);
-    // авто-прыжок на ступеньку в 1 блок
-    if (p.hitWall && p.onGround && (wx * wx + wz * wz) > 0.1) {
-      const l = Math.hypot(wx, wz);
-      const fx = Math.floor(p.pos.x + wx / l * (HW + 0.3)), fz = Math.floor(p.pos.z + wz / l * (HW + 0.3)), fy = Math.floor(p.pos.y + 0.1);
-      const w = this.world;
-      if (w.solid(fx, fy, fz) && !w.solid(fx, fy + 1, fz) && !w.solid(fx, fy + 2, fz) && !w.solid(Math.floor(p.pos.x), fy + 2, Math.floor(p.pos.z))) p.vel.y = 7.4;
-    }
+    // шаг на уступ в 1 блок — только когда игрок сам идёт (не когда его толкнуло взрывом)
+    this.world.moveBody(p, dt, HW, PH, (wx * wx + wz * wz) > 0.1 ? 1.01 : 0);
+    // тело поднялось мгновенно — камеру и модель подтягиваем плавно
+    if (p.stepped) { p.onGround = true; p.stepOff = (p.stepOff || 0) - p.stepped; }
+    if (p.stepOff) { p.stepOff *= Math.exp(-dt * 16); if (p.stepOff > -0.01) p.stepOff = 0; }
     if (p.pos.y < -5) p.pos.y = SY;
   }
   groundBelow(p) {
@@ -879,7 +892,7 @@ export class Game {
     cam.fov += (targetFov - cam.fov) * Math.min(1, dt * 14);
     cam.updateProjectionMatrix();
     this.fx.setScale(this.renderer.domElement.height / (2 * Math.tan(cam.fov * Math.PI / 360)));
-    const head = _v1.copy(p.pos); head.y += EYE;
+    const head = _v1.copy(p.pos); head.y += EYE + (p.stepOff || 0);
     if (!p.alive) {
       // камера смерти — отъезжает и смотрит на тушку
       this.deathCamT = (this.deathCamT || 0) + dt;
@@ -1634,10 +1647,11 @@ export class Game {
       if (!p.alive && m.deadT >= 1 && this.now - (p.diedAt || 0) > 2.5) m.root.visible = false;
       if (p.alive) p.diedAt = this.now;
       m.root.position.copy(p.pos);
+      if (p.stepOff) m.root.position.y += p.stepOff;
       m.root.rotation.y = p.yaw;
       p.groundY = this.groundBelow(p);
       m.animate(dt, { speed: p.speed || 0, onGround: p.onGround, gliding: p.gliding, pitch: p.isLocal ? p.pitch + p.recoil : p.pitch, dead: !p.alive, firing: p.firing, groundY: p.groundY });
-      if (m.tag) m.tag.visible = p.alive;
+      if (m.tag) m.tag.visible = p.alive && this.camera.position.distanceToSquared(p.pos) < 2500; // дальние ники не рисуем
     }
     // яйца
     for (const e of this.eggs) {

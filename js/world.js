@@ -323,8 +323,24 @@ export class World {
   }
 
   // Движение тела с коллизиями по осям. body: {pos:{x,y,z}, vel:{x,y,z}, onGround}
-  moveBody(body, dt, hw, h) {
+  // поднимаемся на уступ, если над ним и над головой есть место
+  tryStep(body, nx, nz, hw, h, step) {
+    if (!step) return false;
+    const p = body.pos;
+    const sy = Math.floor(p.y + 0.02) + 1;
+    if (sy - p.y > step || sy - p.y <= 0.02) return false;
+    if (this.boxHits(nx - hw, sy, nz - hw, nx + hw, sy + h, nz + hw)) return false;
+    if (this.boxHits(p.x - hw, p.y, p.z - hw, p.x + hw, sy + h, p.z + hw)) return false;
+    body.stepped += sy - p.y;
+    p.y = sy;
+    return true;
+  }
+
+  // step — на какую высоту тело само «шагает» на уступ (как в Source/Roblox: без прыжка, без застреваний)
+  moveBody(body, dt, hw, h, step = 0) {
     const p = body.pos, v = body.vel;
+    const canStep = step > 0 && body.onGround && v.y <= 0.5;
+    body.stepped = 0;
     body.onGround = false;
     body.hitWall = false;
     const steps = Math.max(1, Math.ceil(Math.max(Math.abs(v.x), Math.abs(v.y), Math.abs(v.z)) * dt / 0.3));
@@ -340,7 +356,7 @@ export class World {
       p.y = ny;
       // X
       let nx = p.x + v.x * sdt;
-      if (this.boxHits(nx - hw, p.y, p.z - hw, nx + hw, p.y + h, p.z + hw)) {
+      if (this.boxHits(nx - hw, p.y, p.z - hw, nx + hw, p.y + h, p.z + hw) && !this.tryStep(body, nx, p.z, hw, h, canStep ? step : 0)) {
         nx = v.x > 0 ? Math.floor(nx + hw) - hw - 0.001 : Math.floor(nx - hw) + 1 + hw + 0.001;
         if (this.boxHits(nx - hw, p.y, p.z - hw, nx + hw, p.y + h, p.z + hw)) nx = p.x;
         v.x = 0; body.hitWall = true;
@@ -348,7 +364,7 @@ export class World {
       p.x = nx;
       // Z
       let nz = p.z + v.z * sdt;
-      if (this.boxHits(p.x - hw, p.y, nz - hw, p.x + hw, p.y + h, nz + hw)) {
+      if (this.boxHits(p.x - hw, p.y, nz - hw, p.x + hw, p.y + h, nz + hw) && !this.tryStep(body, p.x, nz, hw, h, canStep ? step : 0)) {
         nz = v.z > 0 ? Math.floor(nz + hw) - hw - 0.001 : Math.floor(nz - hw) + 1 + hw + 0.001;
         if (this.boxHits(p.x - hw, p.y, nz - hw, p.x + hw, p.y + h, nz + hw)) nz = p.z;
         v.z = 0; body.hitWall = true;

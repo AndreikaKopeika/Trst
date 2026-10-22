@@ -15,7 +15,8 @@ const FACES = [
 const AO_CURVE = [0.42, 0.62, 0.8, 1.0];
 // при солнечном освещении грани и так разной яркости — оставляем лишь лёгкий намёк
 const LIT_S = [0.97, 0.97, 1.0, 0.9, 0.97, 0.97];
-const PD = CHUNK + 2; // сторона копии чанка с рамкой
+const PD = CHUNK + 2;
+const CHUNK_SPHERE = new THREE.Sphere(new THREE.Vector3(CHUNK / 2, CHUNK / 2, CHUNK / 2), CHUNK * 0.87); // сторона копии чанка с рамкой
 // таблицы по id блока: непрозрачный / стекло / светится, UV каждой грани
 const OPQ = new Uint8Array(256), GLS = new Uint8Array(256), GLOW = new Uint8Array(256);
 const UVT = [];
@@ -227,14 +228,36 @@ export class Mesher {
       if (mesh) { this.scene.remove(mesh); mesh.geometry.dispose(); }
       return null;
     }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(buf.pos.slice(0, buf.v * 3), 3));
-    if (mat === this.litMat) geo.setAttribute('normal', new THREE.BufferAttribute(buf.nrm.slice(0, buf.v * 3), 3, true));
-    geo.setAttribute('uv', new THREE.BufferAttribute(buf.uv.slice(0, buf.v * 2), 2));
-    geo.setAttribute('color', new THREE.BufferAttribute(buf.col.slice(0, buf.v * 3), 3, true));
-    geo.setIndex(new THREE.BufferAttribute(buf.v > 65535 ? buf.idx.slice(0, buf.i) : new Uint16Array(buf.idx.subarray(0, buf.i)), 1));
-    geo.computeBoundingSphere();
-    if (mesh) { mesh.geometry.dispose(); mesh.geometry = geo; mesh.material = mat; return mesh; }
+    // переиспользуем буферы чанка (с запасом): обновление блока — это bufferSubData, а не новая геометрия
+    const nv = buf.v, ni = buf.i, lit = mat === this.litMat;
+    let geo = mesh ? mesh.geometry : null;
+    const U = geo && geo.userData;
+    if (!geo || U.capV < nv || U.capI < ni || (nv > 65535) !== U.big || lit !== U.lit) {
+      const capV = Math.ceil(nv * 1.25) + 64, capI = Math.ceil(ni * 1.25) + 96, big = capV > 65535;
+      geo = new THREE.BufferGeometry();
+      const dyn = (a) => a.setUsage(THREE.DynamicDrawUsage);
+      geo.setAttribute('position', dyn(new THREE.BufferAttribute(new Uint8Array(capV * 3), 3)));
+      if (lit) geo.setAttribute('normal', dyn(new THREE.BufferAttribute(new Int8Array(capV * 3), 3, true)));
+      geo.setAttribute('uv', dyn(new THREE.BufferAttribute(new Float32Array(capV * 2), 2)));
+      geo.setAttribute('color', dyn(new THREE.BufferAttribute(new Uint8Array(capV * 3), 3, true)));
+      geo.setIndex(dyn(new THREE.BufferAttribute(big ? new Uint32Array(capI) : new Uint16Array(capI), 1)));
+      geo.userData = { capV, capI, big, lit };
+      geo.boundingSphere = CHUNK_SPHERE;
+      if (mesh) mesh.geometry.dispose();
+    }
+    const A = geo.attributes;
+    const put = (attr, src, n) => {
+      attr.array.set(n === src.length ? src : src.subarray(0, n));
+      attr.needsUpdate = true;
+      if (attr.clearUpdateRanges) { attr.clearUpdateRanges(); attr.addUpdateRange(0, n); }
+    };
+    put(A.position, buf.pos, nv * 3);
+    if (lit) put(A.normal, buf.nrm, nv * 3);
+    put(A.uv, buf.uv, nv * 2);
+    put(A.color, buf.col, nv * 3);
+    put(geo.index, buf.idx, ni);
+    geo.setDrawRange(0, ni);
+    if (mesh) { mesh.geometry = geo; mesh.material = mat; return mesh; }
     const m = new THREE.Mesh(geo, mat);
     m.position.set(X0, Y0, Z0); m.updateMatrix();
     m.matrixAutoUpdate = false;

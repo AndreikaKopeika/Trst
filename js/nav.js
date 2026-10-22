@@ -9,7 +9,7 @@ import { SX, SY, SZ } from './world.js';
 const N = SX * SY * SZ;
 const L = SX * SZ;            // шаг по высоте в индексе
 const INF = 65535;
-const VIRT = 254, BAD = 255;  // коды клеток (0 — можно стоять, 1..40 — цена пробивания)
+const VIRT = 254, BAD = 255, UNK = 253;  // коды клеток (0 — можно стоять, 1..40 — цена пробивания)
 const H = 6;                  // макс. высота моста/столба над поверхностью
 export const BRIDGE_COST = 2, PILLAR_COST = 6;
 const RING = 64, RM = RING - 1;
@@ -82,6 +82,14 @@ export class Nav {
     for (let k = 2, j = i - 2 * L; k <= H + 1 && j >= 0; k++, j -= L) if (SOLID[d[j]] || LIQUID[d[j]]) return VIRT;
     return BAD;
   }
+  // то же, но с кэшем на время одного построения: каждая клетка считается один раз, а не ~20
+  kc(x, y, z) {
+    if (y < 1 || y >= SY - 2) return BAD;
+    const i = (y * SZ + z) * SX + x, C = this.kcache;
+    let v = C[i];
+    if (v === UNK) { v = this.kind(x, y, z); C[i] = v; }
+    return v;
+  }
   // свободна ли клетка для тела (ноги и голова)
   free2(x, y, z) { return !this.sol(x, y, z) && !this.sol(x, y + 1, z); }
 
@@ -104,6 +112,8 @@ export class Nav {
       let dist = this.spare; this.spare = null;
       if (!dist) dist = new Uint16Array(N);
       dist.fill(INF);
+      if (!this.kcache) this.kcache = new Uint8Array(N);
+      this.kcache.fill(UNK);
       if (!this.buckets) this.buckets = Array.from({ length: RING }, () => []);
       for (const q of this.buckets) q.length = 0;
       this.job = { team, dist, buckets: this.buckets, cur: 0, left: 0, t0: now, ms: 0, pops: 0 };
@@ -127,35 +137,35 @@ export class Nav {
       n++;
       if (D[i] < d) continue;
       const x = i % SX, z = ((i / SX) | 0) % SZ, y = (i / L) | 0;
-      const kv = this.kind(x, y, z);
+      const kv = this.kc(x, y, z);
       const enter = kv === 0 ? 0 : kv === VIRT ? BRIDGE_COST : kv; // цена входа в эту клетку
       for (let k = 0; k < 4; k++) {
         const ux = x + DX[k], uz = z + DZ[k];
         if (ux < 0 || uz < 0 || ux >= SX || uz >= SZ) continue;
         // 1) с той же высоты (с земли, с моста или из пробитой клетки)
-        const ku = this.kind(ux, y, uz);
+        const ku = this.kc(ux, y, uz);
         if (ku !== BAD) this.relax(J, i + DI[k], d + 1 + enter);
         if (kv !== 0) continue;
         // 2) спрыгнуть к нам сверху (до 5 блоков)
         for (let uy = y + 1; uy <= y + 5 && uy < SY - 2; uy++) {
           const c = i + (uy - y) * L;
           if (SOLID[data[c]] || SOLID[data[c + L]]) break;
-          const kk = this.kind(ux, uy, uz);
+          const kk = this.kc(ux, uy, uz);
           if (kk === 0) { this.relax(J, c + DI[k], d + 1); break; }
           if (kk === VIRT) this.relax(J, c + DI[k], d + 1);
         }
         // 3) запрыгнуть к нам на ступеньку (с земли или с моста)
         if (y > 1 && SOLID[data[i - L]] && !SOLID[data[i + DI[k] + L]]) {
-          const kk = this.kind(ux, y - 1, uz);
+          const kk = this.kc(ux, y - 1, uz);
           if (kk === 0 || kk === VIRT) this.relax(J, i - L + DI[k], d + 2);
         }
       }
       if (kv === 0) {
         // 4) всплыть к нам снизу
-        if (y > 1 && LIQUID[data[i - L]] && this.kind(x, y - 1, z) === 0) this.relax(J, i - L, d + 1);
+        if (y > 1 && LIQUID[data[i - L]] && this.kc(x, y - 1, z) === 0) this.relax(J, i - L, d + 1);
       } else if (kv === VIRT) {
         // 5) столб: из клетки под нами подпрыгнуть и поставить блок
-        const ku = this.kind(x, y - 1, z);
+        const ku = this.kc(x, y - 1, z);
         if ((ku === 0 || ku === VIRT) && !LIQUID[data[i - L]] && !LIQUID[data[i - 2 * L]]) this.relax(J, i - L, d + PILLAR_COST);
       }
     }

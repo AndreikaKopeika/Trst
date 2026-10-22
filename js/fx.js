@@ -7,6 +7,12 @@ const _v = new THREE.Vector3(), _q = new THREE.Quaternion(), _m = new THREE.Matr
 const FWD = new THREE.Vector3(0, 0, -1), ZUP = new THREE.Vector3(0, 0, 1);
 const rnd = (a, b) => a + Math.random() * (b - a);
 
+// отправляем в видеокарту только живую часть буфера, а не весь пул
+function upload(attr, count) {
+  attr.needsUpdate = true;
+  if (attr.clearUpdateRanges) { attr.clearUpdateRanges(); attr.addUpdateRange(0, Math.max(1, count * attr.itemSize)); }
+}
+
 function canvasTex(size, draw) {
   const cv = document.createElement('canvas'); cv.width = cv.height = size;
   draw(cv.getContext('2d'), size);
@@ -79,8 +85,11 @@ class Particles {
       this.col[i3 + 2] = this.c0[i3 + 2] + (this.c1[i3 + 2] - this.c0[i3 + 2]) * t;
     }
     const g = this.geo;
-    g.attributes.position.needsUpdate = true; g.attributes.aColor.needsUpdate = true;
-    g.attributes.aSize.needsUpdate = true; g.attributes.aAlpha.needsUpdate = true;
+    if (this.n || this.lastN) {
+      const A = g.attributes;
+      upload(A.position, this.n); upload(A.aColor, this.n); upload(A.aSize, this.n); upload(A.aAlpha, this.n);
+    }
+    this.lastN = this.n;
     g.setDrawRange(0, this.n);
   }
   kill(i) {
@@ -116,13 +125,17 @@ class Debris {
     it.p.set(x, y, z); it.v.set(vx, vy, vz); it.r.set(rnd(0, 6), rnd(0, 6), rnd(0, 6));
     it.rv.set(rnd(-12, 12), rnd(-12, 12), rnd(-12, 12)); it.s = size; it.life = life; it.max = life;
     it.c.setHex(color).multiplyScalar(rnd(0.75, 1.1));
+    it.dirty = true; it.rest = false;
   }
   update(dt) {
     const w = this.world;
+    let moved = false, colors = false;
     for (let i = 0; i < this.n; i++) {
       const it = this.items[i];
       it.life -= dt;
-      if (it.life <= 0) { const j = --this.n; this.items[i] = this.items[j]; this.items[j] = it; i--; continue; }
+      if (it.life <= 0) { const j = --this.n; this.items[i] = this.items[j]; this.items[j] = it; this.items[i].dirty = true; i--; continue; }
+      // улёгшийся обломок не пересчитываем, пока не начнёт исчезать
+      if (it.rest && it.life > 0.5 && !it.dirty) continue;
       it.v.y -= 25 * dt;
       const nx = it.p.x + it.v.x * dt, ny = it.p.y + it.v.y * dt, nz = it.p.z + it.v.z * dt;
       if (w.solid(Math.floor(it.p.x), Math.floor(ny - it.s * 0.5), Math.floor(it.p.z))) {
@@ -137,11 +150,13 @@ class Debris {
       _s.setScalar(it.s * k);
       _m.compose(it.p, _q, _s);
       this.mesh.setMatrixAt(i, _m);
-      this.mesh.setColorAt(i, it.c);
+      if (it.dirty) { this.mesh.setColorAt(i, it.c); it.dirty = false; colors = true; }
+      if (it.v.y === 0 && Math.abs(it.v.x) + Math.abs(it.v.z) < 0.05) { it.rest = true; it.rv.set(0, 0, 0); }
+      moved = true;
     }
     this.mesh.count = this.n;
-    this.mesh.instanceMatrix.needsUpdate = true;
-    if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+    if (moved) upload(this.mesh.instanceMatrix, this.n);
+    if (colors) upload(this.mesh.instanceColor, this.n);
   }
   clear() { this.n = 0; this.mesh.count = 0; }
 }
@@ -185,12 +200,12 @@ class Tracers {
       this.mesh.setColorAt(i, this._c);
     }
     this.mesh.count = this.n;
-    this.mesh.instanceMatrix.needsUpdate = true;
-    if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+    if (this.n || this.lastN) { upload(this.mesh.instanceMatrix, this.n); upload(this.mesh.instanceColor, this.n); }
+    this.lastN = this.n;
   }
   clear() { this.n = 0; this.mesh.count = 0; }
 }
-const _neg = new THREE.Vector3();
+const _neg = new THREE.Vector3(), _rq = new THREE.Quaternion();
 
 class Decals {
   constructor(scene, max, tex) {
@@ -198,6 +213,7 @@ class Decals {
     this.mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }), max);
     this.mesh.count = 0; this.mesh.frustumCulled = false; this.mesh.renderOrder = 2;
     this.cells = new Int32Array(max).fill(-1);
+    this.byCell = new Map();
     scene.add(this.mesh);
     this.zero = new THREE.Matrix4().makeScale(0, 0, 0);
   }
@@ -206,20 +222,25 @@ class Decals {
     if (this.mesh.count < this.max) this.mesh.count++;
     _v.copy(p).addScaledVector(n, 0.012);
     _q.setFromUnitVectors(ZUP, n);
-    const rq = new THREE.Quaternion().setFromAxisAngle(ZUP, Math.random() * 6.28);
-    _q.multiply(rq);
+    _q.multiply(_rq.setFromAxisAngle(ZUP, Math.random() * 6.28));
     _s.set(size, size, size);
     _m.compose(_v, _q, _s);
     this.mesh.setMatrixAt(i, _m);
     this.mesh.instanceMatrix.needsUpdate = true;
+    const old = this.cells[i];
+    if (old >= 0) { const l = this.byCell.get(old); if (l) { l.delete(i); if (!l.size) this.byCell.delete(old); } }
     this.cells[i] = cell;
+    if (cell >= 0) { let l = this.byCell.get(cell); if (!l) this.byCell.set(cell, l = new Set()); l.add(i); }
   }
+  // блок разрушен — убираем его дырки (по индексу, без перебора всех)
   removeCell(cell) {
-    let ch = false;
-    for (let i = 0; i < this.max; i++) if (this.cells[i] === cell) { this.mesh.setMatrixAt(i, this.zero); this.cells[i] = -1; ch = true; }
-    if (ch) this.mesh.instanceMatrix.needsUpdate = true;
+    const l = this.byCell.get(cell);
+    if (!l) return;
+    for (const i of l) { this.mesh.setMatrixAt(i, this.zero); this.cells[i] = -1; }
+    this.byCell.delete(cell);
+    this.mesh.instanceMatrix.needsUpdate = true;
   }
-  clear() { this.cells.fill(-1); this.mesh.count = 0; this.i = 0; }
+  clear() { this.cells.fill(-1); this.byCell.clear(); this.mesh.count = 0; this.i = 0; }
 }
 
 class Flashes {
