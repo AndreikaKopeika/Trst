@@ -217,3 +217,65 @@ body.desktop canvas#game { cursor: crosshair; }
 .mapBtn { flex: 1; padding: 9px 4px; border-radius: 10px; border: 2px solid transparent; background: #0e121c; color: #fff; font-weight: 800; font-size: 13px; }
 .mapBtn.sel { border-color: #ffd23a; background: #3a2f10; }
 #underwater { position: absolute; inset: 0; background: radial-gradient(ellipse at center, rgba(30,90,160,0.35), rgba(10,40,90,0.65)); }
+
+/* ---------- НАСТРОЙКИ ---------- */
+#settings { position: fixed; inset: 0; z-index: 30; background: #000a; display: flex; align-items: center; justify-content: center; padding: calc(6px + env(safe-area-inset-top)) calc(8px + env(safe-area-inset-right)) calc(6px + env(safe-area-inset-bottom)) calc(8px + env(safe-area-inset-left)); }
+.set-panel { width: min(720px, 100%); max-height: 100%; display: flex; flex-direction: column; background: #1b2131f5; border-radius: 16px; box-shadow: 0 12px 50px #000b; overflow: hidden; }
+.set-head { display: flex; align-items: center; gap: 6px; padding: 8px 8px 0; }
+.tabs { display: flex; gap: 4px; flex: 1; overflow-x: auto; }
+.tab { flex: 1; white-space: nowrap; padding: 9px 8px; border: 0; border-radius: 10px 10px 0 0; background: #0e121c; color: #cfd6e6; font-weight: 800; font-size: 13px; }
+.tab.sel { background: #2a3248; color: #fff; box-shadow: inset 0 -3px 0 #ffd23a; }
+#settings:not(.ingame) .tab.ingame { display: none; }
+.x { width: 38px; height: 38px; border: 0; border-radius: 10px; background: #2d3550; color: #fff; font-size: 16px; flex: none; }
+.set-body { overflow-y: auto; touch-action: pan-y; padding: 10px 14px 14px; background: #2a3248; -webkit-overflow-scrolling: touch; }
+.set-body section { display: none; }
+.set-body section.sel { display: grid; grid-template-columns: 1fr; gap: 2px 18px; }
+@media (min-width: 640px) { .set-body section.sel { grid-template-columns: 1fr 1fr; } .set-body section .btnrow, .set-body section .note, .set-body section h4, #sessHost, #pauseRoom, .touchOnly { grid-column: 1 / -1; } }
+#sessHost, .touchOnly { display: grid; grid-template-columns: inherit; gap: inherit; }
+.set-body .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 40px; font-size: 14px; border-bottom: 1px solid #ffffff10; }
+.set-body .row > span { flex: 1; }
+.set-body .row small { opacity: 0.6; font-size: 11px; }
+.set-body .row input[type=range] { flex: 1; max-width: 160px; accent-color: #ffb02e; }
+.set-body .row i { font-style: normal; min-width: 44px; text-align: right; font-weight: 800; font-size: 13px; color: #ffd36b; }
+.set-body .row input[type=checkbox] { width: 22px; height: 22px; accent-color: #ffb02e; }
+.set-body select { padding: 7px; border-radius: 9px; border: 1px solid #fff2; background: #0e121c; color: #fff; font-size: 13px; max-width: 190px; }
+.set-body h4 { margin: 10px 0 2px; font-size: 14px; color: #ffd36b; }
+.set-body h4 small { color: #fff; opacity: 0.55; font-weight: 400; }
+.btnrow { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
+.btnrow button { flex: 1; min-width: 120px; padding: 10px; border-radius: 10px; border: 0; background: #3a4566; color: #fff; font-weight: 800; }
+.btnrow button.primary { background: linear-gradient(#ffc03a, #ff9a1e); color: #2a1800; }
+.btnrow button.danger { background: #a3302a; }
+.seg { display: flex; gap: 3px; flex-wrap: wrap; justify-content: flex-end; }
+.seg button { padding: 7px 9px; border: 2px solid transparent; border-radius: 9px; background: #0e121c; color: #dde3f0; font-weight: 800; font-size: 12px; }
+.seg button.sel { border-color: #ffd23a; background: #3a2f10; color: #fff; }
+.stepper { display: flex; align-items: center; gap: 8px; }
+.stepper button { width: 36px; height: 34px; border: 0; border-radius: 9px; background: #0e121c; color: #fff; font-size: 20px; font-weight: 900; }
+.stepper b { min-width: 22px; text-align: center; font-size: 17px; }
+.note { font-size: 12px; opacity: 0.75; margin: 4px 0; line-height: 1.4; }
+#pauseRoom { font-size: 14px; margin-bottom: 4px; }
+#pauseRoom button { padding: 4px 10px; border: 0; border-radius: 8px; background: #3a4566; color: #fff; font-weight: 700; }
+body.desktop .touchOnly { display: none; }
+body:not(.desktop) .deskOnly { display: none; }
+.gear { position: absolute; top: 10px; right: 10px; width: 42px; height: 42px; border: 0; border-radius: 12px; background: #2d3550; color: #fff; font-size: 22px; z-index: 2; }
+.field-row { display: flex; gap: 8px; }
+.field-row .field { flex: 1; }
+
+/* ---------- редактор кнопок ---------- */
+#layoutEdit { position: absolute; top: calc(6px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); z-index: 5; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; background: #000c; border: 1px solid #fff3; border-radius: 12px; padding: 6px 10px; font-size: 13px; max-width: 96vw; }
+#layoutEdit label { display: flex; align-items: center; gap: 6px; }
+#layoutEdit input[type=range] { width: 110px; accent-color: #ffb02e; }
+#layoutEdit button { padding: 7px 12px; border: 0; border-radius: 9px; background: #3a4566; color: #fff; font-weight: 800; }
+#layoutEdit button.primary { background: linear-gradient(#ffc03a, #ff9a1e); color: #2a1800; }
+body.editing #hud > *:not(#touchUI):not(#layoutEdit) { display: none !important; }
+body.editing #touchUI { display: block !important; }
+body.editing #touchUI .btn { pointer-events: auto; outline: 2px dashed #ffd23a88; outline-offset: 3px; touch-action: none; cursor: grab; }
+body.editing #touchUI .btn.picked { outline: 3px solid #ffd23a; }
+body.editing #btnPlace, body.editing #btnMine { display: none !important; }
+body.editing #btnFire, body.editing #btnAim { display: flex !important; }
+body.editing #stickBase { display: block !important; left: 20%; top: 62%; opacity: 0.5; }
+#touchUI .btn { opacity: var(--btnA, 1); }
+#touchUI .btn.down { opacity: 1; }
+
+#fps { position: absolute; top: calc(4px + env(safe-area-inset-top)); right: calc(8px + env(safe-area-inset-right)); font: 700 11px ui-monospace, monospace; background: #0008; padding: 2px 6px; border-radius: 6px; color: #9dff7a; }
+@media (min-width: 640px) { .set-body .row.wide { grid-column: 1 / -1; } }
+#touchUI #nadeCount:empty { display: none; }

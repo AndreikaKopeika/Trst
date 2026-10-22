@@ -134,6 +134,7 @@ function buildGun(key) {
   }
   mergeGroup(g);
   if (spin) mergeGroup(spin);
+  mergeGroup(g); // детали ствола — одним мешем
   g.add(muzzle);
   g.userData.muzzle = muzzle;
   g.userData.spin = spin;

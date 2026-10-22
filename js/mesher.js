@@ -1,6 +1,6 @@
 // Построение мешей чанков: отсечение скрытых граней, AO, затемнение повреждённых блоков.
 import * as THREE from './lib/three.module.min.js';
-import { BLOCKS, tileUV } from './blocks.js';
+import { BLOCKS, tileUV, T } from './blocks.js';
 import { SX, SY, SZ, CHUNK, CX, CY, CZ } from './world.js';
 
 // грани: нормаль, 4 угла (против часовой снаружи), индекс тайла (0 верх, 1 низ, 2 бок), яркость
@@ -13,6 +13,8 @@ const FACES = [
   { n: [0, 0, -1], c: [[1, 0, 0], [0, 0, 0], [0, 1, 0], [1, 1, 0]], t: 2, s: 0.68 },
 ];
 const AO_CURVE = [0.42, 0.62, 0.8, 1.0];
+// при солнечном освещении грани и так разной яркости — оставляем лишь лёгкий намёк
+const LIT_S = [0.97, 0.97, 1.0, 0.9, 0.97, 0.97];
 const PD = CHUNK + 2; // сторона копии чанка с рамкой
 // таблицы по id блока: непрозрачный / стекло / светится, UV каждой грани
 const OPQ = new Uint8Array(256), GLS = new Uint8Array(256), GLOW = new Uint8Array(256);
@@ -50,13 +52,14 @@ for (let id = 0; id < 256; id++) for (let f = 0; f < 6; f++) {
 }
 
 // Буферы растут по необходимости
+// позиции — байты относительно угла чанка (0..16), нормали — байты: в 4 раза меньше данных для видеокарты
 class Buf {
-  constructor() { this.pos = new Float32Array(4096 * 3); this.uv = new Float32Array(4096 * 2); this.col = new Uint8Array(4096 * 3); this.idx = new Uint32Array(4096 * 1.5); this.v = 0; this.i = 0; }
+  constructor() { this.pos = new Uint8Array(4096 * 3); this.nrm = new Int8Array(4096 * 3); this.uv = new Float32Array(4096 * 2); this.col = new Uint8Array(4096 * 3); this.idx = new Uint32Array(4096 * 1.5); this.v = 0; this.i = 0; }
   reset() { this.v = 0; this.i = 0; }
   ensure(nv) {
     if ((this.v + nv) * 3 > this.pos.length) {
       const grow = (a, k) => { const n = new a.constructor(a.length * 2); n.set(a); return n; };
-      this.pos = grow(this.pos); this.uv = grow(this.uv); this.col = grow(this.col); this.idx = grow(this.idx);
+      this.pos = grow(this.pos); this.nrm = grow(this.nrm); this.uv = grow(this.uv); this.col = grow(this.col); this.idx = grow(this.idx);
     }
   }
 }
@@ -65,8 +68,32 @@ export class Mesher {
   constructor(world, scene, atlasTexture) {
     this.world = world;
     this.scene = scene;
-    this.opaqueMat = new THREE.MeshBasicMaterial({ map: atlasTexture, vertexColors: true });
+    this.atlas = atlasTexture;
+    this.lit = false; // true — мир освещается солнцем с тенями (высокая/ультра графика)
+    this.basicMat = new THREE.MeshBasicMaterial({ map: atlasTexture, vertexColors: true });
+    this.litMat = new THREE.MeshLambertMaterial({ map: atlasTexture, vertexColors: true });
+    this.opaqueMat = this.basicMat;
     this.glassMat = new THREE.MeshBasicMaterial({ map: atlasTexture, vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide });
+    // вода течёт и рябит: сдвигаем текстуру внутри её клетки атласа
+    this.time = { value: 0 };
+    const wr = tileUV(T.water);
+    this.glassMat.onBeforeCompile = (sh) => {
+      sh.uniforms.uTime = this.time;
+      sh.uniforms.wRect = { value: new THREE.Vector4(wr[0], wr[1], wr[2], wr[3]) };
+      sh.fragmentShader = 'uniform float uTime; uniform vec4 wRect;\n' + sh.fragmentShader.replace('#include <map_fragment>', `
+#ifdef USE_MAP
+  vec2 wuv = vMapUv; float wk = 1.0;
+  if (wuv.x > wRect.x && wuv.x < wRect.z && wuv.y > wRect.y && wuv.y < wRect.w) {
+    vec2 sz = wRect.zw - wRect.xy, l = (wuv - wRect.xy) / sz;
+    l = fract(l + vec2(uTime * 0.05, uTime * 0.03) + 0.05 * sin(l.yx * 6.2832 + uTime * 1.3));
+    wuv = wRect.xy + l * sz;
+    wk = 0.93 + 0.12 * sin(dot(l, vec2(9.0, 7.0)) + uTime * 2.1);
+  }
+  vec4 sampledDiffuseColor = texture2D(map, wuv);
+  sampledDiffuseColor.rgb *= wk;
+  diffuseColor *= sampledDiffuseColor;
+#endif`);
+    };
     this.chunks = new Array(CX * CY * CZ).fill(null).map(() => ({ opaque: null, glass: null, dirty: true }));
     this.opaqueBuf = new Buf();
     this.glassBuf = new Buf();
@@ -107,6 +134,11 @@ export class Mesher {
       if (performance.now() - t0 > budgetMs) break;
     }
   }
+  setLit(on) {
+    if (on === this.lit) return;
+    this.lit = on; this.opaqueMat = on ? this.litMat : this.basicMat;
+    this.rebuildAll();
+  }
   rebuildAll() { this.markAllDirty(); this.update(Infinity); }
 
   build(ci) {
@@ -131,7 +163,7 @@ export class Mesher {
         }
       }
     }
-    const ao = this.aoTmp;
+    const ao = this.aoTmp, lit = this.lit;
     for (let y = Y0; y < Y1; y++) for (let z = Z0; z < Z1; z++) for (let x = X0; x < X1; x++) {
       const pi = ((y - Y0 + 1) * PD + (z - Z0 + 1)) * PD + (x - X0 + 1);
       const id = pad[pi];
@@ -148,6 +180,7 @@ export class Mesher {
         const F = FACES[f];
         const buf = isGlass ? gb : ob;
         buf.ensure(4);
+        const shade = lit && !isGlass ? LIT_S[f] : F.s;
         const uv = UVT[id * 6 + f];
         const v0 = buf.v;
         const AOO = F.aoOff;
@@ -160,11 +193,12 @@ export class Mesher {
           }
           ao[k] = a;
           const p = buf.v * 3;
-          buf.pos[p] = x + c[0]; buf.pos[p + 1] = y + c[1]; buf.pos[p + 2] = z + c[2];
+          buf.pos[p] = x - X0 + c[0]; buf.pos[p + 1] = y - Y0 + c[1]; buf.pos[p + 2] = z - Z0 + c[2];
+          buf.nrm[p] = F.n[0] * 127; buf.nrm[p + 1] = F.n[1] * 127; buf.nrm[p + 2] = F.n[2] * 127;
           const u = buf.v * 2;
           buf.uv[u] = (k === 0 || k === 3) ? uv[0] : uv[2];
           buf.uv[u + 1] = (k < 2) ? uv[1] : uv[3];
-          const fct = F.s * AO_CURVE[a] * dk; // вершинные цвета линейные — возводим в квадрат
+          const fct = shade * AO_CURVE[a] * dk; // вершинные цвета линейные — возводим в квадрат
           const br = Math.min(255, Math.round(255 * fct * fct * glow));
           buf.col[p] = Math.min(255, br * F.cr);
           buf.col[p + 1] = br;
@@ -183,23 +217,26 @@ export class Mesher {
       }
     }
     const ch = this.chunks[ci];
-    ch.opaque = this.apply(ch.opaque, ob, this.opaqueMat, 0);
-    ch.glass = this.apply(ch.glass, gb, this.glassMat, 1);
+    ch.opaque = this.apply(ch.opaque, ob, this.opaqueMat, 0, X0, Y0, Z0);
+    ch.glass = this.apply(ch.glass, gb, this.glassMat, 1, X0, Y0, Z0);
+    if (ch.opaque) ch.opaque.castShadow = ch.opaque.receiveShadow = this.lit;
   }
 
-  apply(mesh, buf, mat, order) {
+  apply(mesh, buf, mat, order, X0, Y0, Z0) {
     if (buf.i === 0) {
       if (mesh) { this.scene.remove(mesh); mesh.geometry.dispose(); }
       return null;
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(buf.pos.slice(0, buf.v * 3), 3));
+    if (mat === this.litMat) geo.setAttribute('normal', new THREE.BufferAttribute(buf.nrm.slice(0, buf.v * 3), 3, true));
     geo.setAttribute('uv', new THREE.BufferAttribute(buf.uv.slice(0, buf.v * 2), 2));
     geo.setAttribute('color', new THREE.BufferAttribute(buf.col.slice(0, buf.v * 3), 3, true));
     geo.setIndex(new THREE.BufferAttribute(buf.v > 65535 ? buf.idx.slice(0, buf.i) : new Uint16Array(buf.idx.subarray(0, buf.i)), 1));
     geo.computeBoundingSphere();
-    if (mesh) { mesh.geometry.dispose(); mesh.geometry = geo; return mesh; }
+    if (mesh) { mesh.geometry.dispose(); mesh.geometry = geo; mesh.material = mat; return mesh; }
     const m = new THREE.Mesh(geo, mat);
+    m.position.set(X0, Y0, Z0); m.updateMatrix();
     m.matrixAutoUpdate = false;
     m.renderOrder = order;
     this.scene.add(m);

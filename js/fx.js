@@ -258,7 +258,7 @@ function hexRGB(h, j = 0) {
 export class FX {
   constructor(scene, world, quality) {
     this.scene = scene; this.world = world;
-    const q = quality === 'low' ? 0.5 : 1;
+    const q = typeof quality === 'number' ? quality : quality === 'low' ? 0.5 : 1;
     this.q = q;
     this.dust = new Particles(scene, Math.floor(2500 * q), false, world);
     this.glow = new Particles(scene, Math.floor(2000 * q), true, world);
@@ -269,7 +269,7 @@ export class FX {
       g.addColorStop(0, 'rgba(10,8,6,0.95)'); g.addColorStop(0.35, 'rgba(25,20,15,0.85)'); g.addColorStop(0.6, 'rgba(40,35,30,0.35)'); g.addColorStop(1, 'rgba(0,0,0,0)');
       c.fillStyle = g; c.fillRect(0, 0, s, s);
     });
-    this.decals = new Decals(scene, quality === 'low' ? 150 : 320, holeTex);
+    this.decals = new Decals(scene, Math.round(320 * Math.min(1.5, q)), holeTex);
     const flashTex = canvasTex(64, (c, s) => {
       const g = c.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
       g.addColorStop(0, 'rgba(255,255,230,1)'); g.addColorStop(0.25, 'rgba(255,210,120,0.9)'); g.addColorStop(1, 'rgba(255,120,20,0)');

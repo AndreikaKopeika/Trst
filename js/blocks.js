@@ -6,7 +6,7 @@ export const ATLAS_COLS = 8;
 export const ATLAS_ROWS = 4;
 
 // Номера тайлов в атласе
-const T = {
+export const T = {
   grassTop: 0, grassSide: 1, dirt: 2, stone: 3, sand: 4, logSide: 5, logTop: 6, leaves: 7,
   planks: 8, brick: 9, concrete: 10, steel: 11, glass: 12, woolRed: 13, woolBlue: 14, bedrock: 15,
   sandbag: 16, tntSide: 17, tntTop: 18, gravel: 19, darkStone: 20, crate: 21, snow: 22, lamp: 23,

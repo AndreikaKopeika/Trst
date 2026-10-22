@@ -10,6 +10,7 @@ import { updateBot, BOT_NAMES, BOT_WEAPONS } from './bots.js';
 import { esc } from './hud.js';
 import { ViewModel } from './viewmodel.js';
 import { Nav } from './nav.js';
+import { preset } from './quality.js';
 
 export const HW = 0.32, PH = 1.45, EYE = 1.32;
 const GRAV = 25, JUMP_V = 8.3, GLIDE_V = -2.3, SPEED = 5.4;
@@ -84,7 +85,8 @@ export class Game {
 
     const scene = this.scene = new THREE.Scene();
     scene.background = new THREE.Color(SKY);
-    this.applyQuality(this.settings.quality);
+    scene.fog = new THREE.Fog(SKY, 35, 100);
+    this.post = o.post || null;
     this.hemi = new THREE.HemisphereLight(0xe8f4ff, 0x7a6a4a, 1.6); scene.add(this.hemi);
     const sun = this.sun = new THREE.DirectionalLight(0xfff2dd, 1.8); sun.position.set(0.5, 1, 0.3); scene.add(sun);
     this.camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.05, 400);
@@ -96,7 +98,7 @@ export class Game {
     this.world = new World();
     this.mesher = new Mesher(this.world, scene, atlas.texture);
     this.world.onChange = (x, y, z) => { this.mesher.markBlock(x, y, z); if (this.nav) this.nav.markDirty(); };
-    this.fx = new FX(scene, this.world, this.settings.quality);
+    this.fx = new FX(scene, this.world, preset(this.settings.quality).fx);
     this.vm = new ViewModel(this.renderer, atlas.texture);
     this.vm.onEvent = (e) => {
       if (e === 'puff') return;
@@ -139,15 +141,70 @@ export class Game {
     this.lastHurtSound = 0;
     this.diffChunks = [];
     this.ready = false;
+    this.env = { hemi: 1.6, sun: 1.8 };
+    this.applyQuality(this.settings.quality);
   }
 
+  // графика: дальность, тени, освещение мира, облака
   applyQuality(q) {
-    const far = q === 'low' ? 70 : q === 'med' ? 100 : 140;
-    this.scene.fog = new THREE.Fog(SKY, far * 0.35, far);
-    if (this.camera) this.camera.far = far + 20;
+    const P = this.Q = preset(q);
+    const ov = this.settings.gfx || {};
+    const far = P.far * (ov.far || 1);
+    this.scene.fog.near = far * 0.35; this.scene.fog.far = far;
+    this.camera.far = far + 20; this.camera.updateProjectionMatrix();
+    if (this.clouds) this.clouds.visible = P.clouds;
+    if (this.skyDome) this.skyDome.visible = P.clouds;
+    const shadows = ov.shadows === true ? (P.shadows || 1024) : ov.shadows === false ? 0 : P.shadows;
+    const r = this.renderer, sun = this.sun;
+    const was = r.shadowMap.enabled;
+    r.shadowMap.enabled = shadows > 0;
+    r.shadowMap.type = shadows >= 2048 ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+    sun.castShadow = shadows > 0;
+    if (shadows > 0) {
+      const R = shadows >= 2048 ? 56 : 40;
+      if (sun.shadow.map && sun.shadow.mapSize.x !== shadows) { sun.shadow.map.dispose(); sun.shadow.map = null; }
+      sun.shadow.mapSize.set(shadows, shadows);
+      const c = sun.shadow.camera; c.left = -R; c.right = R; c.top = R; c.bottom = -R; c.near = 1; c.far = 220; c.updateProjectionMatrix();
+      sun.shadow.bias = -0.0006; sun.shadow.normalBias = 0.04;
+      this.shadowR = R;
+      if (!sun.target.parent) this.scene.add(sun.target);
+    }
+    this.mesher.setLit(shadows > 0);
+    if (was !== r.shadowMap.enabled) this.scene.traverse(o => { if (o.material) [].concat(o.material).forEach(m => { m.needsUpdate = true; }); });
+    for (const p of this.players.values()) this.modelShadows(p.model);
+    this.updateLights();
+  }
+  modelShadows(m) {
+    const on = this.renderer.shadowMap.enabled;
+    m.root.traverse(o => { if (o.isMesh) { o.castShadow = on; o.receiveShadow = false; } });
+    if (m.tag) m.tag.castShadow = false;
+    m.shadow.visible = !on;
+    m.shadowOff = on;
+  }
+  updateLights() {
+    const lit = this.mesher.lit;
+    this.hemi.intensity = this.env.hemi * (lit ? 1.18 : 1);
+    this.sun.intensity = this.env.sun * (lit ? 1.05 : 1);
   }
 
   makeSky() {
+    // небесный купол с градиентом: у горизонта цвет тумана, вверху глубже, вокруг солнца — свечение
+    this.skyMat = new THREE.ShaderMaterial({
+      uniforms: { hor: { value: new THREE.Color(SKY) }, zen: { value: new THREE.Color(0x3d7fd6) }, sunDir: { value: new THREE.Vector3(0.6, 0.75, 0.3).normalize() }, sunCol: { value: new THREE.Color(0xfff1c8) } },
+      vertexShader: 'varying vec3 vD; void main() { vD = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); gl_Position.z = gl_Position.w * 0.9999; }',
+      fragmentShader: `uniform vec3 hor; uniform vec3 zen; uniform vec3 sunDir; uniform vec3 sunCol; varying vec3 vD;
+        void main() { vec3 d = normalize(vD); float h = clamp(d.y, 0.0, 1.0);
+          vec3 c = mix(hor, zen, pow(h, 0.55));
+          float s = max(dot(d, sunDir), 0.0); c += sunCol * (pow(s, 12.0) * 0.35 + pow(s, 200.0) * 0.6);
+          if (d.y < 0.0) c = hor;
+          gl_FragColor = vec4(c, 1.0);
+          #include <colorspace_fragment>
+        }`,
+      side: THREE.BackSide, depthWrite: false, fog: false,
+    });
+    this.skyDome = new THREE.Mesh(new THREE.SphereGeometry(50, 24, 12), this.skyMat);
+    this.skyDome.frustumCulled = false; this.skyDome.renderOrder = -10;
+    this.scene.add(this.skyDome);
     // солнце
     const cv = document.createElement('canvas'); cv.width = cv.height = 64;
     const c = cv.getContext('2d');
@@ -158,27 +215,33 @@ export class Game {
     this.sunSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: st, fog: false, depthWrite: false, transparent: true }));
     this.sunSprite.scale.set(40, 40, 1);
     this.scene.add(this.sunSprite);
-    // облака
-    this.clouds = new THREE.Group();
-    const cm = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85, fog: false });
-    const cg = new THREE.BoxGeometry(1, 1, 1);
-    for (let i = 0; i < 18; i++) {
-      const cl = new THREE.Group();
+    // облака: все коробки склеены в один меш — один вызов отрисовки
+    const cg = new THREE.BoxGeometry(1, 1, 1).toNonIndexed();
+    const cp = cg.attributes.position.array, parts = [];
+    const m4 = new THREE.Matrix4();
+    // полоса облаков шириной 300 повторена трижды — плывёт по кругу без скачков
+    for (let i = 0; i < 20; i++) {
       const n = 2 + Math.floor(Math.random() * 3);
-      for (let k = 0; k < n; k++) {
-        const m = new THREE.Mesh(cg, cm);
-        m.scale.set(8 + Math.random() * 10, 2, 6 + Math.random() * 8);
-        m.position.set(k * 6 - n * 3, Math.random(), Math.random() * 6 - 3);
-        cl.add(m);
+      const ox = Math.random() * 300, oy = 58 + Math.random() * 10, oz = Math.random() * 200 - 70;
+      const sz = [], off = [];
+      for (let k = 0; k < n; k++) { sz.push([8 + Math.random() * 10, 6 + Math.random() * 8]); off.push([k * 6 - n * 3, Math.random(), Math.random() * 6 - 3]); }
+      for (const rep of [-300, 0, 300]) for (let k = 0; k < n; k++) {
+        m4.makeScale(sz[k][0], 2, sz[k][1]).setPosition(ox + rep + off[k][0], oy + off[k][1], oz + off[k][2]);
+        const a = new Float32Array(cp); new THREE.BufferAttribute(a, 3).applyMatrix4(m4); parts.push(a);
       }
-      cl.position.set(Math.random() * 260 - 80, 58 + Math.random() * 10, Math.random() * 200 - 70);
-      this.clouds.add(cl);
     }
+    const all = new Float32Array(parts.length * cp.length);
+    parts.forEach((a, i) => all.set(a, i * cp.length));
+    const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(all, 3));
+    geo.computeBoundingSphere();
+    this.clouds = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85, fog: false }));
+    this.clouds.frustumCulled = false;
     this.scene.add(this.clouds);
   }
 
   // ===================== СТАРТ =====================
-  startHost(name, team, botsPerTeam, map = 'classic') {
+  startHost(name, team, botsPerTeam, map = 'classic', opts = {}) {
+    this.botSkill = opts.skill ?? 1; this.botBuild = opts.build ?? true;
     this.loadWorld(Math.floor(Math.random() * 1e9), map);
     this.botsPerTeam = botsPerTeam;
     this.myId = 0;
@@ -259,7 +322,13 @@ export class Game {
     if (this.scene.fog) this.scene.fog.color.copy(sky);
     const warm = info.space === 'desert';
     this.hemi.color.setHex(warm ? 0xfff0d8 : 0xe8f4ff); this.hemi.groundColor.setHex(warm ? 0x9a7a4a : 0x7a6a4a);
-    this.sun.color.setHex(warm ? 0xffe2b0 : 0xfff2dd); this.sun.intensity = warm ? 2.2 : 1.8;
+    this.sun.color.setHex(warm ? 0xffe2b0 : 0xfff2dd);
+    this.env.sun = warm ? 2.2 : 1.8; this.env.hemi = 1.6;
+    if (this.skyMat) {
+      this.skyMat.uniforms.hor.value.copy(sky);
+      this.skyMat.uniforms.zen.value.copy(sky).lerp(new THREE.Color(warm ? 0x5a8fd0 : 0x2f6fd0), 0.75);
+    }
+    this.updateLights();
     this.audio.setSpace(info.space || 'open');
     this.audio.setWind && this.audio.setWind(info.space === 'canyon' ? 0.08 : warm ? 0.07 : 0.05);
   }
@@ -293,6 +362,7 @@ export class Game {
     p.model = new ChickenModel(team, isLocal ? null : name, !isLocal);
     p.model.addTo(this.scene);
     p.model.root.visible = false;
+    this.modelShadows(p.model);
     if (isLocal || isBot) {
       p.ammo = WEAPONS.map(w => w.mag); p.reloadT = -1; p.cool = 0; p.spin = 0; p.bloom = 0; p.recoil = 0; p.recoilYaw = 0;
       p.nades = 3; p.buildSel = 0; p.lastWeapon = 0; p.mineCool = 0; p.nadeCool = 0; p.flapT = 0;
@@ -315,6 +385,23 @@ export class Game {
     p.model.setWeapon(p.weapon);
     p.ai = { role: Math.random() < 0.3 ? 'defend' : 'push' };
     return p;
+  }
+  // ---------- настройки сеанса (хост меняет прямо во время игры) ----------
+  setBotCount(n) {
+    if (!this.isHost) return;
+    this.botsPerTeam = n = Math.max(0, Math.min(8, n | 0));
+    for (const t of [0, 1]) {
+      const bots = [...this.players.values()].filter(q => q.isBot && q.team === t);
+      for (let i = bots.length; i < n; i++) { const b = this.addBot(t); if (this.roundState === 'play') this.hostSpawn(b); }
+      for (let i = n; i < bots.length; i++) this.removePlayer(bots[i].id);
+    }
+    this.emit({ t: 'roster', l: this.roster(), sc: this.score });
+  }
+  newRound(map) {
+    if (!this.isHost) return;
+    if (map) this.mapId = map;
+    this.roundState = 'end';
+    this.newRoundAt = this.now; // новый раунд запустится в ближайшем hostTick
   }
   roster() {
     return [...this.players.values()].map(p => [p.id, p.name, p.team, p.isBot ? 1 : 0, p.kills, p.deaths]);
@@ -564,7 +651,7 @@ export class Game {
   updateLocal(dt, inp) {
     const p = this.me;
     const fovK = this.camera.fov / this.baseFov;
-    const sensK = 0.0042 * fovK * (p.aiming ? 0.8 : 1);
+    const sensK = 0.0042 * fovK * (p.aiming ? 0.8 * (this.settings.adsSens || 1) : 1);
     p.yaw -= inp.lookX * sensK;
     p.pitch -= inp.lookY * sensK;
     p.pitch = Math.max(-1.5, Math.min(1.5, p.pitch));
@@ -1504,7 +1591,7 @@ export class Game {
     this.now += dt;
     this.frameNo = (this.frameNo || 0) + 1;
     this.audio.frame(dt);
-    if (!this.ready || !this.me) { this.renderer.render(this.scene, this.camera); return; }
+    if (!this.ready || !this.me) { this.renderer.setRenderTarget(null); this.renderer.render(this.scene, this.camera); return; }
     this.updateLocal(dt, inp);
     // урон по блокам — пачкой
     if (this.pendingBd.size) {
@@ -1578,10 +1665,14 @@ export class Game {
       if (this.audio.ears && this.audio.ctx) this.audio.ears.frequency.setTargetAtTime(uw ? 700 : 20000, this.audio.ctx.currentTime, 0.05);
     }
     this.sunSprite.position.set(this.camera.position.x + 120, this.camera.position.y + 150, this.camera.position.z + 60);
-    this.clouds.children.forEach(c => { c.position.x += dt * 1.2; if (c.position.x > 200) c.position.x = -100; });
+    this.clouds.position.x = ((this.now * 1.2) % 300) - 150;
+    this.skyDome.position.copy(this.camera.position);
+    this.mesher.time.value = this.now;
     this.fx.update(dt);
     this.mesher.update(this.mesher.dirtyList.size > 40 ? 8 : 3.5, this.camera.position);
     this.updateHUD(dt);
+    this.updateShadowCam();
+    if (this.post) this.post.begin();
     this.renderer.render(this.scene, this.camera);
     // оружие от первого лица поверх мира
     if (this.fpActive()) {
@@ -1595,6 +1686,31 @@ export class Game {
       });
       if (!(w.scope && this.vm.ads > 0.85)) this.vm.render();
     } else this.vm.ads = 0;
+    if (this.post) this.post.end();
+  }
+
+  // тень от солнца рисуется в квадрате вокруг игрока (чуть впереди взгляда), с привязкой к текселям — без дрожания
+  updateShadowCam() {
+    if (!this.sun.castShadow) return;
+    const c = this.camera, R = this.shadowR, sun = this.sun;
+    c.getWorldDirection(_dir);
+    const tx = c.position.x + _dir.x * R * 0.45, tz = c.position.z + _dir.z * R * 0.45, ty = Math.min(SY, Math.max(0, c.position.y - 4));
+    const L = _v2.set(0.5, 1, 0.3).normalize();
+    // базис света для привязки к сетке теней
+    const texel = (2 * R) / sun.shadow.mapSize.x;
+    const right = _v3.set(-L.z, 0, L.x).normalize();
+    const up = _v1.crossVectors(right, L);
+    const a = Math.round((tx * right.x + tz * right.z) / texel) * texel;
+    const bU = Math.round((tx * up.x + ty * up.y + tz * up.z) / texel) * texel;
+    const dL = tx * L.x + ty * L.y + tz * L.z;
+    const px = right.x * a + up.x * bU + L.x * dL, py = right.y * a + up.y * bU + L.y * dL, pz = right.z * a + up.z * bU + L.z * dL;
+    sun.target.position.set(px, py, pz); sun.target.updateMatrixWorld();
+    sun.position.set(px + L.x * 110, py + L.y * 110, pz + L.z * 110);
+    sun.updateMatrixWorld();
+    // на «Высокой» тень обновляется через кадр — заметно дешевле
+    const r = this.renderer.shadowMap;
+    r.autoUpdate = false;
+    if (sun.shadow.mapSize.x >= 2048 || (this.frameNo & 1) === 0) r.needsUpdate = true;
   }
 
   updateHUD(dt) {

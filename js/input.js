@@ -169,7 +169,7 @@ export class Input {
     const l = Math.hypot(mx, my); if (l > 1) { mx /= l; my /= l; }
     const out = {
       mx, my,
-      lookX: this.lookDX * this.sens, lookY: this.lookDY * this.sens,
+      lookX: this.lookDX * this.sens, lookY: this.lookDY * this.sens * (this.invertY ? -1 : 1),
       fire: this.held.has('fire') || this.held.has('fire2') || this.held.has('mouseL'),
       jump: this.held.has('jump') || K.has('Space'),
       place: this.held.has('place') || (this.held.has('mouseL')),
