@@ -66,20 +66,22 @@ export class Mesher {
         for (let cx = Math.max(0, x0); cx <= Math.min(CX - 1, x1); cx++) this.dirtyList.add(this.cidx(cx, cy, cz));
   }
 
-  // перестроить до maxCount грязных чанков (ближайшие к камере — первыми)
-  update(maxCount, camPos) {
+  // перестраиваем грязные чанки (ближайшие к камере — первыми), не дольше budgetMs за кадр
+  update(budgetMs, camPos) {
     if (!this.dirtyList.size) return;
     let list = [...this.dirtyList];
-    if (camPos && list.length > maxCount) {
+    if (camPos && list.length > 1 && budgetMs !== Infinity) {
       const d = (i) => {
         const cx = i % CX, cz = Math.floor(i / CX) % CZ, cy = Math.floor(i / (CX * CZ));
         return Math.hypot((cx + 0.5) * CHUNK - camPos.x, (cy + 0.5) * CHUNK - camPos.y, (cz + 0.5) * CHUNK - camPos.z);
       };
       list.sort((a, b) => d(a) - d(b));
     }
-    for (let k = 0; k < Math.min(maxCount, list.length); k++) {
+    const t0 = performance.now();
+    for (let k = 0; k < list.length; k++) {
       this.dirtyList.delete(list[k]);
       this.build(list[k]);
+      if (performance.now() - t0 > budgetMs) break;
     }
   }
   rebuildAll() { this.markAllDirty(); this.update(Infinity); }

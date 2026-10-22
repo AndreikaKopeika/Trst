@@ -117,7 +117,7 @@ $('btnSolo').addEventListener('click', async () => {
 });
 
 $('btnHost').addEventListener('click', async () => {
-  audio.init();
+  audio.init(); goFullscreen();
   const n = nick();
   loading(true, 'Создаём комнату…');
   let code = makeCode(), net = null;
@@ -130,7 +130,6 @@ $('btnHost').addEventListener('click', async () => {
     }
   }
   if (!net) { loading(false); status('Не удалось создать комнату', true); return; }
-  goFullscreen();
   loading(true, 'Строим мир…');
   await new Promise(r => setTimeout(r, 30));
   game = makeGame('host', net, code);
@@ -145,13 +144,13 @@ $('btnJoin').addEventListener('click', async () => {
   audio.init();
   const code = $('roomCode').value.trim().toUpperCase();
   if (code.length !== 4) { status('Введи код из 4 символов', true); return; }
+  goFullscreen();
   const n = nick();
   loading(true, 'Подключаемся к ' + code + '…');
   const net = createClient();
   try { await net.start(code); } catch (e) {
     net.close(); loading(false); status(e.message || 'Не удалось подключиться', true); return;
   }
-  goFullscreen();
   loading(true, 'Загружаем карту…');
   game = makeGame('client', net, code);
   game.code = code;
@@ -192,6 +191,10 @@ function copyLink() {
   else prompt('Ссылка:', url);
 }
 $('btnCopy').addEventListener('click', copyLink);
+
+// iOS может приостановить звук — будим его при касаниях
+document.addEventListener('touchend', () => { if (audio.ctx && audio.ctx.state !== 'running') audio.init(); }, { passive: true });
+document.addEventListener('visibilitychange', () => { if (!document.hidden && audio.ctx) audio.ctx.resume?.(); });
 
 // ---------- цикл ----------
 window.addEventListener('resize', applySize);

@@ -1,6 +1,6 @@
 // Боты-курицы (считаются на телефоне хоста): ищут врагов, идут на вражескую базу, пробивают стены, бьют яйцо.
 import { WEAPONS, W } from './weapons.js';
-import { teamWool } from './blocks.js';
+import { teamWool, BLOCKS } from './blocks.js';
 
 const EYE = 1.32, SPEED = 5.4;
 
@@ -131,47 +131,71 @@ export function updateBot(g, b, dt) {
 
   // --- препятствия ---
   let jump = false;
+  const W_ = g.world;
+  const fx0 = Math.floor(b.pos.x), fz0 = Math.floor(b.pos.z), fy = Math.floor(b.pos.y + 0.1);
   if (ml > 0.1) {
-    const px = Math.floor(b.pos.x + mx * 0.75), pz = Math.floor(b.pos.z + mz * 0.75), fy = Math.floor(b.pos.y + 0.1);
-    const feet = g.world.solid(px, fy, pz), head = g.world.solid(px, fy + 1, pz);
+    // клетки, в которые упираемся: по диагонали и по каждой оси
+    const px = Math.floor(b.pos.x + mx * 0.75), pz = Math.floor(b.pos.z + mz * 0.75);
+    const cand = [[px, pz]];
+    if (px !== fx0) cand.push([px, fz0]);
+    if (pz !== fz0) cand.push([fx0, pz]);
+    let feet = false, head = false, cell = null;
+    for (const [cx, cz] of cand) {
+      const f = W_.solid(cx, fy, cz), h = W_.solid(cx, fy + 1, cz);
+      if (f) feet = true;
+      // стена, либо ступенька с навесом сверху — просто так не пройти
+      if (h || (f && W_.solid(cx, fy + 2, cz))) { head = true; if (!cell) cell = [cx, cz]; }
+    }
     if (feet && !head) jump = true;
-    if (head) {
+    if (head && b.speed < 1.5) {
       ai.blockedT += dt;
-      const ownBase = inBase(g, b.team, px, pz, 1);
-      const low = !g.world.solid(px, fy + 3, pz); // стена не выше 3 блоков
-      const roof = g.world.solid(Math.floor(b.pos.x), fy + 2, Math.floor(b.pos.z));
-      if (ai.blockedT > 0.4 && !aim && !ai.pillar) {
-        if ((ownBase || ai.climber || ai.role === 'defend') && low && !roof) { ai.pillar = true; ai.pillarN = 0; }
-        else if (!ownBase) {
+      const [cx, cz] = cell;
+      const ownBase = inBase(g, b.team, cx, cz, 1);
+      const low = !W_.solid(cx, fy + 3, cz) || !W_.solid(cx, fy + 4, cz) && ai.climber;
+      const roof = W_.solid(fx0, fy + 2, fz0);
+      if (ai.blockedT > 0.4 && ai.role === 'defend') { ai.wanderT = 0; ai.blockedT = 0; }
+      else if (ai.blockedT > 0.4 && !aim && !ai.pillar) {
+        if ((ownBase || ai.climber) && low && !roof) {
+          ai.pillar = true; ai.pillarN = 0; ai.pX = b.pos.x; ai.pZ = b.pos.z;
+        } else if (!ownBase && ai.role !== 'defend') {
           // пробиваем стену
-          const ty = g.world.solid(px, fy + 1, pz) ? fy + 1 : fy;
-          aim = { x: px + 0.5, y: ty + 0.5, z: pz + 0.5 };
+          const ty = W_.solid(cx, fy + 1, cz) ? fy + 1 : W_.solid(cx, fy + 2, cz) ? fy + 2 : fy;
+          aim = { x: cx + 0.5, y: ty + 0.5, z: cz + 0.5 };
           shoot = true;
           ai.digging = true;
         }
       }
-      if (ai.blockedT > 5) { ai.sideT = 1.2; ai.side = Math.random() < 0.5 ? -1 : 1; ai.blockedT = 0; ai.pillar = false; }
-    } else { ai.blockedT = 0; ai.digging = false; if (ai.pillar && b.onGround) ai.pillar = false; }
+      if (ai.blockedT > 6) { ai.sideT = 1.2; ai.side = Math.random() < 0.5 ? -1 : 1; ai.blockedT = 0; ai.pillar = false; }
+    } else { ai.blockedT = Math.max(0, ai.blockedT - dt); if (!head) ai.digging = false; }
   }
-  // строим столб под собой, чтобы выбраться/перелезть
+  // строим столб под собой, чтобы выбраться из ямы или перелезть стену
   if (ai.pillar) {
-    const cx = Math.floor(b.pos.x), cz = Math.floor(b.pos.z);
-    if (b.onGround) { ai.py = Math.floor(b.pos.y + 0.01); jump = true; }
-    else if (ai.py !== undefined && b.pos.y >= ai.py + 1.02 && !g.world.solid(cx, ai.py, cz) && g.canPlace(cx, ai.py, cz)) {
-      g.hostSetBlock(cx, ai.py, cz, teamWool(b.team), 0);
+    if (Math.hypot(b.pos.x - ai.pX, b.pos.z - ai.pZ) > 1.3 || W_.solid(fx0, fy + 2, fz0)) ai.pillar = false;
+    else if (b.onGround) { ai.py = Math.floor(b.pos.y + 0.01); jump = true; }
+    else if (ai.py !== undefined && b.pos.y >= ai.py + 1.02 && !W_.solid(fx0, ai.py, fz0) && g.canPlace(fx0, ai.py, fz0)) {
+      g.hostSetBlock(fx0, ai.py, fz0, teamWool(b.team), 0);
       ai.py = undefined;
-      if (++ai.pillarN > 4) ai.pillar = false;
+      if (++ai.pillarN > 5) ai.pillar = false;
     }
   }
-  // застряли?
+  // застряли? 1 — шаг в сторону и прыжок, 2 — столб, 3+ — прокапываем путь
   ai.stuckT += dt;
   if (ai.stuckT > 2) {
     const moved = Math.hypot(b.pos.x - ai.lastX, b.pos.z - ai.lastZ);
-    if (moved < 0.8 && ml > 0.2 && !ai.digging) {
-      ai.sideT = 1.0; ai.side = Math.random() < 0.5 ? -1 : 1; jump = true;
-      if (++ai.stuckN >= 2 && !g.world.solid(Math.floor(b.pos.x), Math.floor(b.pos.y) + 2, Math.floor(b.pos.z))) { ai.pillar = true; ai.pillarN = 0; ai.stuckN = 0; }
+    if (moved < 0.8 && ml > 0.2) {
+      ai.stuckN++;
+      if (!ai.digging) { ai.sideT = 1.0; ai.side = Math.random() < 0.5 ? -1 : 1; jump = true; }
+      if (ai.stuckN === 2 && !W_.solid(fx0, fy + 2, fz0)) { ai.pillar = true; ai.pillarN = 0; ai.pX = b.pos.x; ai.pZ = b.pos.z; }
     } else ai.stuckN = 0;
     ai.stuckT = 0; ai.lastX = b.pos.x; ai.lastZ = b.pos.z;
+  }
+  if (ai.stuckN >= 3 && ml > 0.1 && !aim) {
+    const px = Math.floor(b.pos.x + mx * 0.75), pz = Math.floor(b.pos.z + mz * 0.75);
+    const opts = [[px, fy + 1, pz], [px, fy + 2, pz], [fx0, fy + 2, fz0], [px, fy, pz], [px, fy + 1, fz0], [fx0, fy + 1, pz]];
+    for (const [x, y, z] of opts) {
+      const id = W_.get(x, y, z);
+      if (id && BLOCKS[id].hp !== Infinity && W_.inside(x, y, z)) { aim = { x: x + 0.5, y: y + 0.5, z: z + 0.5 }; shoot = true; ai.digging = true; break; }
+    }
   }
   if (!b.onGround && b.vel.y < -3) jump = true; // планирует
 
@@ -209,7 +233,7 @@ export function updateBot(g, b, dt) {
       else {
         const dist = aim ? Math.hypot(aim.x - b.pos.x, aim.z - b.pos.z) : 10;
         const err = ai.digging ? 0.005 : 0.025 + dist * 0.0009 + (b.speed > 1 ? 0.01 : 0);
-        g.botFire(b, b.weapon, err);
+        g.botFire(b, ai.digging && w.key === 'rpg' ? W.AK : b.weapon, err);
         b.ammo[b.weapon]--;
         b.cool = 1 / (w.rate * 0.8);
         b.firing = true;

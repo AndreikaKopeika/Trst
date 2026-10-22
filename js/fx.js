@@ -323,7 +323,7 @@ export class FX {
       }
       this.flashes.add(_v.copy(p).addScaledVector(n, 0.05), 0.25, 0.04, 0xffe0a0);
     }
-    if (!def.glass) this.decals.add(p, n, rnd(0.1, 0.16) * (strength > 1.5 ? 1.6 : 1), cell);
+    if (!def.glass) this.decals.add(p, n, rnd(0.15, 0.22) * (strength > 1.5 ? 1.5 : 1), cell);
   }
 
   ricochet(p, dir) {

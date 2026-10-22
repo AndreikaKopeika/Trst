@@ -469,6 +469,7 @@ export class Game {
     for (const t of inp.taps) this.handleTap(t);
     if (!p.alive) { p.firing = false; return; }
     const w = WEAPONS[p.weapon];
+    if (inp.fire && !w.build && this.input.isTouch) this.aimAssist(dt);
     // движение
     const fx = -Math.sin(p.yaw), fz = -Math.cos(p.yaw), rx = Math.cos(p.yaw), rz = -Math.sin(p.yaw);
     let wx = fx * inp.my + rx * inp.mx, wz = fz * inp.my + rz * inp.mx;
@@ -512,6 +513,31 @@ export class Game {
       }
     }
     if (!want && p.cool < 0) p.cool = 0;
+  }
+
+  // Лёгкая помощь в прицеливании на телефоне: при стрельбе прицел чуть "липнет" к врагу рядом с перекрестием
+  aimAssist(dt) {
+    const p = this.me, cam = this.camera;
+    cam.getWorldDirection(_dir);
+    let best = null, bestA = 0.075;
+    for (const q of this.players.values()) {
+      if (!q.alive || q.team === p.team) continue;
+      _v1.set(q.pos.x, q.pos.y + 0.8, q.pos.z).sub(cam.position);
+      const d = _v1.length();
+      if (d > 70 || d < 1) continue;
+      const a = _v1.angleTo(_dir);
+      if (a < bestA) { bestA = a; best = q; }
+    }
+    if (!best) return;
+    const head = _v2.set(p.pos.x, p.pos.y + EYE, p.pos.z);
+    _v1.set(best.pos.x, best.pos.y + 0.8, best.pos.z).sub(head);
+    const d = _v1.length();
+    _v1.divideScalar(d);
+    if (this.world.raycast(head.x, head.y, head.z, _v1.x, _v1.y, _v1.z, d - 0.4, true)) return;
+    _v1.set(best.pos.x, best.pos.y + 0.8, best.pos.z).sub(cam.position).normalize();
+    const tyaw = Math.atan2(-_v1.x, -_v1.z), tpitch = Math.asin(Math.max(-1, Math.min(1, _v1.y)));
+    p.yaw = angleLerp(p.yaw, tyaw, Math.min(1, dt * 2.2));
+    p.pitch += (tpitch - p.pitch) * Math.min(1, dt * 1.5);
   }
 
   currentSpread() {
@@ -1316,7 +1342,7 @@ export class Game {
     this.sunSprite.position.set(this.camera.position.x + 120, this.camera.position.y + 150, this.camera.position.z + 60);
     this.clouds.children.forEach(c => { c.position.x += dt * 1.2; if (c.position.x > 200) c.position.x = -100; });
     this.fx.update(dt);
-    this.mesher.update(this.mesher.dirtyList.size > 30 ? 12 : 4, this.camera.position);
+    this.mesher.update(this.mesher.dirtyList.size > 40 ? 8 : 3.5, this.camera.position);
     this.updateHUD(dt);
     this.renderer.render(this.scene, this.camera);
   }
@@ -1327,7 +1353,7 @@ export class Game {
     h.weapon(p.weapon, !!w.build);
     if (w.build) { h.ammo('🧱', BLOCKS[this.buildBlockId()].name); h.block(p.buildSel); h.res(p.res); h.reload(-1); }
     else {
-      h.ammo(p.reloadT >= 0 ? '…' : String(p.ammo[p.weapon]), w.name);
+      h.ammo(p.reloadT >= 0 ? '…' : String(p.ammo[p.weapon]), '/ ' + w.mag);
       h.reload(p.reloadT >= 0 ? 1 - p.reloadT / p.reloadDur : -1);
     }
     h.nades(p.nades);
