@@ -106,6 +106,11 @@ export class Mesher {
   cidx(cx, cy, cz) { return (cy * CZ + cz) * CX + cx; }
 
   markAllDirty() {
+    // карта другого размера — пересоздаём сетку чанков
+    if (this.chunks.length !== CX * CY * CZ) {
+      this.dispose();
+      this.chunks = new Array(CX * CY * CZ).fill(null).map(() => ({ opaque: null, glass: null, dirty: true }));
+    }
     for (let cy = 0; cy < CY; cy++) for (let cz = 0; cz < CZ; cz++) for (let cx = 0; cx < CX; cx++) this.dirtyList.add(this.cidx(cx, cy, cz));
   }
   markBlock(x, y, z) {

@@ -221,9 +221,9 @@ export class Game {
     const cp = cg.attributes.position.array, parts = [];
     const m4 = new THREE.Matrix4();
     // полоса облаков шириной 300 повторена трижды — плывёт по кругу без скачков
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 30; i++) {
       const n = 2 + Math.floor(Math.random() * 3);
-      const ox = Math.random() * 300, oy = 58 + Math.random() * 10, oz = Math.random() * 200 - 70;
+      const ox = Math.random() * 300, oy = 62 + Math.random() * 10, oz = Math.random() * 300 - 80;
       const sz = [], off = [];
       for (let k = 0; k < n; k++) { sz.push([8 + Math.random() * 10, 6 + Math.random() * 8]); off.push([k * 6 - n * 3, Math.random(), Math.random() * 6 - 3]); }
       for (const rep of [-300, 0, 300]) for (let k = 0; k < n; k++) {
@@ -415,7 +415,7 @@ export class Game {
   // ---------- настройки сеанса (хост меняет прямо во время игры) ----------
   setBotCount(n) {
     if (!this.isHost) return;
-    this.botsPerTeam = n = Math.max(0, Math.min(8, n | 0));
+    this.botsPerTeam = n = Math.max(0, Math.min(20, n | 0));
     for (const t of [0, 1]) {
       const bots = [...this.players.values()].filter(q => q.isBot && q.team === t);
       for (let i = bots.length; i < n; i++) { const b = this.addBot(t); if (this.roundState === 'play') this.hostSpawn(b); }
@@ -452,7 +452,7 @@ export class Game {
       if (p.vel.y < -3) p.vel.y = -3;
       // выбираемся на берег
       const headOut = !w0.liquid(Math.floor(p.pos.x), Math.floor(p.pos.y + 1.2), Math.floor(p.pos.z));
-      if (jump && headOut && p.hitWall) p.vel.y = 6.5;
+      if (jump && headOut && p.hitWall) p.vel.y = 7.6;
     } else {
       if (jump && p.onGround) { p.vel.y = JUMP_V; p.jumped = true; }
       p.vel.y -= GRAV * dt;

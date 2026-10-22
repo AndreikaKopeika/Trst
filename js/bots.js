@@ -5,14 +5,17 @@
 // Все умеют строить мосты/столбы по карте путей, ставить укрытия в перестрелке, отступать раненными.
 import { WEAPONS, W } from './weapons.js';
 import { teamWool, BLOCKS, B } from './blocks.js';
-import { SX, SY } from './world.js';
+import { SX, SY, SZ } from './world.js';
 
 const EYE = 1.32, SPEED = 5.4, REACH = 4.6, INF = 65535;
 const TEAM_BLOCK_CAP = 260;   // сколько блоков-построек (не мостов) команда ставит за раунд
 const TOWER_H = 4;
 
 export const BOT_NAMES = ['Ряба', 'Наггетс', 'Бройлер', 'Цыпа', 'Кудахтер', 'Окорочок', 'Крылышко', 'Петя Гриль',
-  'Табака', 'Пернатый', 'Яйцелоб', 'Клювокрут', 'Несушка', 'Гребешок', 'Пух', 'Шаурма'];
+  'Табака', 'Пернатый', 'Яйцелоб', 'Клювокрут', 'Несушка', 'Гребешок', 'Пух', 'Шаурма',
+  'Кукарекс', 'Бульон', 'Гнездо', 'Зёрнышко', 'Перо', 'Хохлатка', 'Цыплёнок', 'Индюк', 'Фазан', 'Квочка', 'Желток',
+  'Омлет', 'Курник', 'Галантин', 'Бройлер-2', 'Шпора', 'Клюв', 'Петух', 'Пеструшка', 'Кура-гриль', 'Окорок', 'Глазунья',
+  'Наседка', 'Филе', 'Голень', 'Крыло', 'Клуша', 'Кочет', 'Пташка', 'Цесарка'];
 export const BOT_WEAPONS = [W.AK, W.AK, W.LMG, W.SHOTGUN, W.SNIPER, W.HMG, W.RPG, W.LMG];
 
 // сложность: 0 — лёгкие, 1 — обычные, 2 — сложные
@@ -315,7 +318,7 @@ function pickSpot(g, b, ts) {
   for (let k = 0; k < 9; k++) {
     const c = P[Math.floor(P.length * rnd(0.15, 0.42))];
     const x = c[0] + Math.round(rnd(-5, 5)), z = c[2] + Math.round(rnd(-6, 6));
-    if (x < 2 || z < 2 || x > SX - 3 || z > 57) continue;
+    if (x < 2 || z < 2 || x > SX - 3 || z > SZ - 3) continue;
     if ((b.team === 0 && x > SX / 2 - 6) || (b.team === 1 && x < SX / 2 + 6)) continue;
     const y = groundNear(W_, x, c[1], z, 3, 4);
     if (y < 0 || W_.liquid(x, y, z) || nearSpawn(g, b.team, x, z, 2.5)) continue;

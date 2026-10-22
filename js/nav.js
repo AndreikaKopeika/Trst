@@ -6,20 +6,20 @@
 import { BLOCKS, SOLID, LIQUID } from './blocks.js';
 import { SX, SY, SZ } from './world.js';
 
-const N = SX * SY * SZ;
-const L = SX * SZ;            // шаг по высоте в индексе
+let N = 0, L = 0, DI = null; // размеры зависят от карты — задаются при создании Nav
 const INF = 65535;
 const VIRT = 254, BAD = 255, UNK = 253;  // коды клеток (0 — можно стоять, 1..40 — цена пробивания)
 const H = 6;                  // макс. высота моста/столба над поверхностью
 export const BRIDGE_COST = 2, PILLAR_COST = 6;
 const RING = 64, RM = RING - 1;
-const DX = [1, -1, 0, 0], DZ = [0, 0, 1, -1], DI = [1, -1, SX, -SX];
+const DX = [1, -1, 0, 0], DZ = [0, 0, 1, -1];
 const DIG = new Uint8Array(256);
 for (let i = 1; i < 256; i++) { const d = BLOCKS[i]; DIG[i] = !d || d.hp === Infinity ? 255 : Math.min(10, 1 + Math.ceil(d.hp / 60)); }
 
 export class Nav {
   constructor(world) {
     this.w = world;
+    N = SX * SY * SZ; L = SX * SZ; DI = [1, -1, SX, -SX];
     this.field = [new Uint16Array(N).fill(INF), new Uint16Array(N).fill(INF)]; // готовые поля (к яйцу 0 и 1)
     this.spare = null;
     this.ready = [false, false];
@@ -30,26 +30,43 @@ export class Nav {
     this.tmp = new Int16Array(SX * SZ);
     this.ver = 0; this.hver = -1;
   }
-  // карта высот (без листвы и брёвен), расширенная на NR клеток
-  heights() {
-    const d = this.w.data, T = this.tmp, NR = 4;
-    for (let z = 0; z < SZ; z++) for (let x = 0; x < SX; x++) {
-      let y = SY - 1, i = (y * SZ + z) * SX + x;
-      for (; y > 0; y--, i -= L) { const id = d[i]; if ((SOLID[id] || LIQUID[id]) && id !== 5 && id !== 6) break; }
-      T[z * SX + x] = y;
+  // карта высот (без листвы и брёвен), расширенная на NR клеток. Считается в 4 кадра (на огромной карте
+  // целиком это ~10 мс). Возвращает true, когда готово.
+  heights(stage) {
+    const d = this.w.data, NR = 4, n = SX * SZ;
+    if (!this.tops || this.tops.length !== n) { this.tops = new Int16Array(n); this.hx = new Int16Array(n); }
+    const T = this.tops, A = this.hx, O = this.tmp;
+    if (stage < 2) {
+      const za = stage === 0 ? 0 : SZ >> 1, zb = stage === 0 ? SZ >> 1 : SZ;
+      for (let z = za; z < zb; z++) for (let x = 0; x < SX; x++) {
+        let y = SY - 1, i = (y * SZ + z) * SX + x;
+        for (; y > 0; y--, i -= L) { const id = d[i]; if ((SOLID[id] || LIQUID[id]) && id !== 5 && id !== 6) break; }
+        T[z * SX + x] = y;
+      }
+      return false;
     }
-    const A = this.near;
-    for (let z = 0; z < SZ; z++) for (let x = 0; x < SX; x++) {
-      let m = 0;
-      for (let k = Math.max(0, x - NR); k <= Math.min(SX - 1, x + NR); k++) if (T[z * SX + k] > m) m = T[z * SX + k];
-      A[z * SX + x] = m;
+    if (stage === 2) {
+      for (let z = 0; z < SZ; z++) {
+        const row = z * SX;
+        for (let x = 0; x < SX; x++) {
+          let m = 0;
+          const k1 = Math.min(SX - 1, x + NR);
+          for (let k = Math.max(0, x - NR); k <= k1; k++) if (T[row + k] > m) m = T[row + k];
+          A[row + x] = m;
+        }
+      }
+      return false;
     }
-    for (let x = 0; x < SX; x++) for (let z = 0; z < SZ; z++) {
-      let m = 0;
-      for (let k = Math.max(0, z - NR); k <= Math.min(SZ - 1, z + NR); k++) if (A[k * SX + x] > m) m = A[k * SX + x];
-      T[z * SX + x] = m;
+    O.fill(0);
+    for (let z = 0; z < SZ; z++) {
+      const row = z * SX, k1 = Math.min(SZ - 1, z + NR);
+      for (let k = Math.max(0, z - NR); k <= k1; k++) {
+        const r2 = k * SX;
+        for (let x = 0; x < SX; x++) if (A[r2 + x] > O[row + x]) O[row + x] = A[r2 + x];
+      }
     }
     const t = this.near; this.near = this.tmp; this.tmp = t;
+    return true;
   }
   idx(x, y, z) { return (y * SZ + z) * SX + x; }
   sol(x, y, z) {
@@ -106,7 +123,12 @@ export class Nav {
       if (!this.dirty && this.ready[0] && this.ready[1]) return;
       if (now - this.lastBuild < 3 && this.ready[0] && this.ready[1]) return;
       // карта высот — отдельным кадром
-      if (this.hver !== this.ver) { this.hver = this.ver; this.heights(); return; }
+      if (this.hver !== this.ver) {
+        if (this.hstage === undefined || this.hstage < 0) this.hstage = 0;
+        const v = this.ver;
+        if (this.heights(this.hstage++)) { this.hver = v; this.hstage = -1; }
+        return;
+      }
       const team = this.queue.shift(); this.queue.push(team);
       const g = this.goals[team]; if (!g) return;
       let dist = this.spare; this.spare = null;

@@ -92,7 +92,7 @@ function updateLockHint() {
 // ---------- меню ----------
 let team = store.get('team', 0);
 $('nick').value = store.get('nick', '') || '';
-$('botCount').value = String(store.get('bots', 2));
+$('botCount').value = String(store.get('bots', 2)); if (!$('botCount').value) $('botCount').value = '2';
 $('botSkill').value = String(settings.botSkill);
 $('botSkill').addEventListener('change', (e) => { settings.botSkill = Number(e.target.value); store.set('botSkill', settings.botSkill); });
 function selTeam(t) {
@@ -276,7 +276,7 @@ function segSel(id, v) { document.querySelectorAll('#' + id + ' button').forEach
 function onSeg(id, fn) { document.querySelectorAll('#' + id + ' button').forEach(b => b.addEventListener('click', () => { segSel(id, b.dataset.v); fn(b.dataset.v); })); }
 onSeg('sessMap', (v) => { if (!game || !game.isHost) return; if (v !== game.mapId) { game.newRound(v); selMap(v); hud.banner('СМЕНА КАРТЫ', 'warn', 2); } });
 onSeg('sessSkill', (v) => { settings.botSkill = Number(v); store.set('botSkill', settings.botSkill); $('botSkill').value = v; if (game) game.botSkill = settings.botSkill; });
-const botStep = (d) => { if (!game || !game.isHost) return; game.setBotCount((game.botsPerTeam || 0) + d); $('botN').textContent = game.botsPerTeam; store.set('bots', game.botsPerTeam); $('botCount').value = String(Math.min(6, game.botsPerTeam)); };
+const botStep = (d) => { if (!game || !game.isHost) return; game.setBotCount((game.botsPerTeam || 0) + d); $('botN').textContent = game.botsPerTeam; store.set('bots', game.botsPerTeam); { const sel = $('botCount'); if ([...sel.options].some(o => o.value === String(game.botsPerTeam))) sel.value = String(game.botsPerTeam); } };
 $('botMinus').addEventListener('click', () => botStep(-1));
 $('botPlus').addEventListener('click', () => botStep(1));
 $('sessBuild').addEventListener('change', (e) => { settings.botBuild = e.target.checked; store.set('botBuild', settings.botBuild); if (game) game.botBuild = settings.botBuild; });

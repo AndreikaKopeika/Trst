@@ -1,10 +1,16 @@
 // Воксельный мир: данные, генерация карты, рейкаст, коллизии.
 import { BLOCKS, B, SOLID, LIQUID } from './blocks.js';
-import { gen2Fort, genDust2 } from './maps.js';
+import { gen2Fort, genDust2, genGiant } from './maps.js';
 
-export const SX = 112, SY = 40, SZ = 60;
+// размер мира зависит от карты; модули читают SX/SY/SZ «вживую» (ES-модули отдают актуальное значение)
+export let SX = 112, SY = 40, SZ = 60;
 export const CHUNK = 16;
-export const CX = Math.ceil(SX / CHUNK), CY = Math.ceil(SY / CHUNK), CZ = Math.ceil(SZ / CHUNK);
+export let CX = Math.ceil(SX / CHUNK), CY = Math.ceil(SY / CHUNK), CZ = Math.ceil(SZ / CHUNK);
+export const MAP_SIZE = { classic: [112, 40, 60], '2fort': [112, 40, 60], dust2: [112, 40, 60], giant: [224, 48, 128] };
+export function setWorldSize(x, y, z) {
+  SX = x; SY = y; SZ = z;
+  CX = Math.ceil(SX / CHUNK); CY = Math.ceil(SY / CHUNK); CZ = Math.ceil(SZ / CHUNK);
+}
 
 function mulberry(seed) {
   let a = seed >>> 0;
@@ -73,9 +79,19 @@ export class World {
   // ---------- генерация ----------
   generate(seed, map = 'classic') {
     this.mapId = map;
-    if (map === '2fort' || map === 'dust2') {
+    const sz = MAP_SIZE[map] || MAP_SIZE.classic;
+    setWorldSize(sz[0], sz[1], sz[2]);
+    if (this.data.length !== SX * SY * SZ) { this.data = new Uint8Array(SX * SY * SZ); this.dmg = new Uint8Array(SX * SY * SZ); }
+    const info = this.genMap(seed, map);
+    // под яйцом — бедрок: яйцо не провалится, сколько ни ломай под ним
+    for (const e of info.eggs) this.data[this.idx(Math.floor(e.x), Math.floor(e.y) - 1, Math.floor(e.z))] = B.BEDROCK;
+    this.base = new Uint8Array(this.data);
+    return info;
+  }
+  genMap(seed, map) {
+    if (map === '2fort' || map === 'dust2' || map === 'giant') {
       this.data.fill(0); this.dmg.fill(0);
-      const info = map === '2fort' ? gen2Fort(this, seed) : genDust2(this, seed);
+      const info = map === '2fort' ? gen2Fort(this, seed) : map === 'dust2' ? genDust2(this, seed) : genGiant(this, seed);
       this.base = new Uint8Array(this.data);
       this.info = info;
       return info;

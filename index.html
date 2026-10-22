@@ -106,11 +106,12 @@
         <button class="mapBtn sel" data-map="classic" title="Холмы, деревья, руины и река">🌳 Курятник</button>
         <button class="mapBtn" data-map="2fort" title="Два форта, мост и река в каньоне">🏰 2Fort</button>
         <button class="mapBtn" data-map="dust2" title="Пустынный город: Длинная, мид, B">🏜️ Dust 2</button>
+        <button class="mapBtn" data-map="giant" title="Огромная карта: крепости, траншеи, туннели, три моста">⚔️ Фронт</button>
       </div>
     </div>
     <div class="field-row">
       <label class="field">Боты в команде
-        <select id="botCount"><option value="0">0</option><option value="1">1</option><option value="2" selected>2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option></select>
+        <select id="botCount"><option value="0">0</option><option value="1">1</option><option value="2" selected>2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="8">8</option><option value="10">10</option><option value="12">12</option><option value="16">16 — эпик</option><option value="20">20 — война</option></select>
       </label>
       <label class="field">Сложность
         <select id="botSkill"><option value="0">Лёгкие</option><option value="1" selected>Обычные</option><option value="2">Сложные</option></select>
@@ -135,7 +136,7 @@
       <p><b>Оружие:</b> автомат, пулемёт, снайперка, тяжёлый пулемёт, дробовик, базука, гранаты и режим стройки.</p>
       <p><b>ПК:</b> кликни по экрану — мышь захватится. WASD — ходьба, Shift — бег, пробел — прыжок/планирование, ЛКМ — огонь, ПКМ — прицел (держать), R — перезарядка, G или колёсико — граната, Q — стройка, 1–7 и колесо — оружие, V — вид, Tab — счёт, Esc — меню. </p>
       <p><b>Настройки ⚙:</b> графика (Низкая → Ультра, разрешение 3D с чётким апскейлом, тени, FPS), расстановка и размер кнопок, чувствительность, звук. Создатель комнаты в игре (☰ → Игра) меняет карту, ботов и их сложность.</p>
-      <p><b>Карты:</b> «Курятник» — холмы и руины; 2Fort — два форта, крытый мост, река и канализация; Dust 2 — Длинная, мид, туннели и точка B.</p>
+      <p><b>Карты:</b> «Курятник» — холмы и руины; 2Fort — два форта, крытый мост, река и канализация; Dust 2 — Длинная, мид, туннели и точка B; «Великий фронт» — огромная карта для долгих боёв: крепости, траншеи и доты, три моста через каньон, деревни и сеть подземных туннелей с залом под рекой. Ставь побольше ботов (до 20 в команде).</p>
       <p><b>С другом:</b> один нажимает «Создать комнату» и отправляет ссылку/код, второй вводит код и жмёт «Войти».</p>
     </details>
   </div>
@@ -163,7 +164,7 @@
         </div>
         <div id="sessHost">
           <h4>Сеанс <small>— меняется сразу для всех</small></h4>
-          <div class="row"><span>Карта</span><div class="seg" id="sessMap"><button data-v="classic">🌳 Курятник</button><button data-v="2fort">🏰 2Fort</button><button data-v="dust2">🏜️ Dust 2</button></div></div>
+          <div class="row"><span>Карта</span><div class="seg" id="sessMap"><button data-v="classic">🌳 Курятник</button><button data-v="2fort">🏰 2Fort</button><button data-v="dust2">🏜️ Dust 2</button><button data-v="giant">⚔️ Фронт</button></div></div>
           <div class="row"><span>Боты в каждой команде</span><div class="stepper"><button id="botMinus">−</button><b id="botN">2</b><button id="botPlus">+</button></div></div>
           <div class="row"><span>Сложность ботов</span><div class="seg" id="sessSkill"><button data-v="0">Лёгкие</button><button data-v="1">Обычные</button><button data-v="2">Сложные</button></div></div>
           <label class="row"><span>Боты строят мосты, вышки и укрытия</span><input type="checkbox" id="sessBuild"></label>

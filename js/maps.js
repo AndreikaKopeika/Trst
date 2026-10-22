@@ -277,3 +277,334 @@ export function genDust2(w, seed) {
   ], redEgg, blueEgg);
   return info;
 }
+
+// =====================================================================
+// ВЕЛИКИЙ ФРОНТ — огромная карта 224×128 для долгих боёв.
+// Крепости с цитаделями, траншеи и доты, передовые форты, деревни у реки,
+// каньон с тремя мостами (каменный, крытый, разбитый), остров с руинами,
+// сеть туннелей под всей картой с подземным залом под рекой.
+// =====================================================================
+export function genGiant(w, seed) {
+  const r = mulberry(seed);
+  const { set, get, fill } = tools(w);
+  const MID = (SX - 1) / 2;                  // 111.5 — середина (река)
+  const RX0 = 105, RX1 = 118;                // вода
+  const CZ_ = 64;                            // центральная линия
+  const BASE_G = 19;                         // пол баз
+  // плавный шум
+  const P = new Float32Array(64 * 64); for (let i = 0; i < P.length; i++) P[i] = r();
+  const at = (x, y) => P[((x & 63) << 6) | (y & 63)];
+  const sm = (t) => t * t * (3 - 2 * t);
+  const n2 = (x, y) => { const xi = Math.floor(x), yi = Math.floor(y), xf = sm(x - xi), yf = sm(y - yi); const a = at(xi, yi), b = at(xi + 1, yi), c = at(xi, yi + 1), d = at(xi + 1, yi + 1); return a + (b - a) * xf + (c - a) * yf + (a - b - c + d) * xf * yf; };
+  const noise = (x, y) => (n2(x, y) + n2(x * 2.1, y * 2.1) * 0.5 + n2(x * 4.3, y * 4.3) * 0.25) / 1.75;
+  const mx = (u, team) => team === 0 ? u : SX - 1 - u;    // зеркало для синих
+  const smooth01 = (t) => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
+
+  // ---------- рельеф ----------
+  const H = new Int16Array(SX * SZ);
+  for (let z = 0; z < SZ; z++) for (let x = 0; x < SX; x++) {
+    let h = 19 + (noise(x * 0.045, z * 0.045) - 0.5) * 9;
+    const mount = Math.max(0, 1 - Math.min(z, SZ - 1 - z) / 12);                 // горы по краям
+    h += mount * mount * (12 + noise(x * 0.1 + 7, z * 0.1) * 8);
+    const u = Math.min(x, SX - 1 - x);
+    if (u < 4) h = Math.max(h, 30);                                              // торцевые скалы
+    const dBase = Math.max(0, Math.abs(z - CZ_) - 24) + Math.max(0, u - 46);      // ровная площадка базы
+    h = h + (BASE_G - h) * (1 - smooth01(dBase / 10));
+    const dr = Math.abs(x - MID);                                                 // у реки — ровнее
+    if (dr < 22) h = h + (18 - h) * (1 - smooth01((dr - 12) / 10));
+    H[z * SX + x] = Math.max(12, Math.min(SY - 10, Math.round(h)));
+  }
+  for (let z = 0; z < SZ; z++) for (let x = 0; x < SX; x++) {
+    const h = H[z * SX + x];
+    set(x, 0, z, B.BEDROCK);
+    for (let y = 1; y <= h; y++) {
+      let id = y < h - 3 ? (noise(x * 0.3 + y * 0.2, z * 0.3) > 0.68 ? B.DARKSTONE : B.STONE) : y < h ? B.DIRT : (h > 27 ? B.SNOW : B.GRASS);
+      if (y === h && h <= 27 && r() < 0.04) id = B.GRAVEL;
+      set(x, y, z, id);
+    }
+  }
+  const top = (x, z) => H[Math.max(0, Math.min(SZ - 1, z)) * SX + Math.max(0, Math.min(SX - 1, x))];
+
+  // ---------- река в каньоне: вода + берега ступеньками по 1 блоку ----------
+  for (let z = 0; z < SZ; z++) for (let x = RX0 - 6; x <= RX1 + 6; x++) {
+    const dist = x < RX0 ? RX0 - x : x > RX1 ? x - RX1 : 0;
+    const t = dist === 0 ? 9 : Math.min(top(x, z), 11 + dist); // первая ступенька — вровень с водой: легко выплыть
+    fill(x, t + 1, z, x, SY - 1, z, 0);
+    if (dist === 0) { set(x, 9, z, B.SAND); fill(x, 10, z, x, 12, z, B.WATER); fill(x, 7, z, x, 8, z, B.STONE); }
+    else set(x, t, z, dist < 3 ? B.SAND : B.GRAVEL);
+    H[z * SX + x] = dist === 0 ? 12 : t;
+  }
+
+  // ---------- туннели (уровень ног y=3, потолок y=6) ----------
+  const tunnels = [];
+  const tunX = (xa, xb, z) => tunnels.push({ x0: Math.min(xa, xb), x1: Math.max(xa, xb), z0: z - 1, z1: z + 1 });
+  const tunZ = (za, zb, x) => tunnels.push({ x0: x - 1, x1: x + 1, z0: Math.min(za, zb), z1: Math.max(za, zb) });
+  tunX(47, SX - 48, CZ_);        // главный: от крепости до крепости
+  tunX(85, SX - 86, 30);         // северный: между фортами
+  tunX(97, SX - 98, 98);         // южный: между деревнями
+  tunZ(30, 98, 111); tunZ(30, 98, 112);   // поперечный под рекой
+  // обшивка: пол, стены, потолок — сначала у всех, потом вырезаем воздух (перекрёстки остаются открытыми)
+  for (const t of tunnels) {
+    fill(t.x0 - 1, 2, t.z0 - 1, t.x1 + 1, 2, t.z1 + 1, B.STONE);
+    fill(t.x0 - 1, 6, t.z0 - 1, t.x1 + 1, 6, t.z1 + 1, B.CONCRETE);
+    fill(t.x0 - 1, 3, t.z0 - 1, t.x1 + 1, 5, t.z1 + 1, B.BRICK);
+  }
+  // подземный зал под рекой с колоннами
+  fill(101, 2, 52, 122, 7, 76, B.BRICK);
+  fill(101, 8, 52, 122, 8, 76, B.CONCRETE);
+  for (const t of tunnels) fill(t.x0, 3, t.z0, t.x1, 5, t.z1, 0);
+  fill(102, 3, 53, 121, 7, 75, 0);
+  for (let x = 104; x <= 119; x += 5) for (let z = 56; z <= 72; z += 5) { fill(x, 3, z, x + 1, 7, z + 1, B.CONCRETE); set(x, 5, z, B.LAMP); }
+  for (let z = 58; z <= 70; z += 4) { set(106, 3, z, B.SANDBAG); set(117, 3, z, B.SANDBAG); }
+  fill(110, 3, 63, 113, 3, 65, B.CRATE);
+  // фонари в стенах туннелей и ящики с ТНТ
+  for (const t of tunnels) {
+    const alongX = t.x1 - t.x0 > t.z1 - t.z0;
+    for (let k = 4; k < (alongX ? t.x1 - t.x0 : t.z1 - t.z0); k += 9) {
+      if (alongX) { if (get(t.x0 + k, 4, t.z0 - 1) === B.BRICK) set(t.x0 + k, 4, t.z0 - 1, B.LAMP); if (get(t.x0 + k + 4, 4, t.z1 + 1) === B.BRICK) set(t.x0 + k + 4, 4, t.z1 + 1, B.LAMP); }
+      else { if (get(t.x0 - 1, 4, t.z0 + k) === B.BRICK) set(t.x0 - 1, 4, t.z0 + k, B.LAMP); }
+    }
+  }
+  for (const [x, z] of [[70, 64], [153, 64], [96, 30], [127, 30], [104, 98], [119, 98]]) { set(x, 3, z - 1, B.TNT); set(x + 1, 3, z - 1, B.CRATE); }
+
+  // спуск-лестница вдоль x: от поверхности (стоим на yTop) вниз до y=3, по блоку на шаг
+  const stairs = (xs, z, dir, yTop) => {
+    const n = yTop - 3;
+    for (let k = 0; k <= n; k++) {
+      const x = xs + dir * k, y = yTop - k;
+      fill(x, y - 1, z - 2, x, y + 3, z - 2, B.BRICK); fill(x, y - 1, z + 2, x, y + 3, z + 2, B.BRICK);
+    }
+    for (let k = 0; k <= n; k++) {
+      const x = xs + dir * k, y = yTop - k;
+      fill(x, y, z - 1, x, y + 3, z + 1, 0);
+      fill(x, y - 1, z - 1, x, y - 1, z + 1, B.PLANKS);
+      if (k % 6 === 3) set(x, y + 1, z - 2, B.LAMP);
+    }
+    return xs + dir * n;
+  };
+
+  // ---------- крепости ----------
+  const info = { spawns: [[], []], eggs: [], bases: [], sky: 0x9fd0ff, space: 'open', name: 'Великий фронт' };
+  for (const team of [0, 1]) {
+    const X = (u) => mx(u, team), dir = team === 0 ? 1 : -1;
+    const wool = team === 0 ? B.WOOL_RED : B.WOOL_BLUE, metal = team === 0 ? B.REDWOOD : B.BLUEMETAL;
+    const G = BASE_G;
+    // площадка
+    for (let u = 4; u <= 46; u++) for (let z = 38; z <= 90; z++) {
+      const x = X(u);
+      fill(x, G + 1, z, x, SY - 1, z, 0);
+      fill(x, 1, z, x, G - 1, z, get(x, 1, z) || B.STONE);
+      set(x, G, z, ((u + z) % 9 === 0) ? wool : B.CONCRETE);
+      H[z * SX + x] = G;
+    }
+    // внешняя стена с зубцами, ворота спереди и по бокам
+    const U0 = 6, U1 = 42, Z0 = 42, Z1 = 86;
+    for (let u = U0; u <= U1; u++) for (let z = Z0; z <= Z1; z++) {
+      const edge = u === U0 || u === U1 || z === Z0 || z === Z1;
+      if (!edge) continue;
+      if (u === U1 && Math.abs(z - CZ_) <= 2) continue;
+      if ((z === Z0 || z === Z1) && u >= 22 && u <= 25) continue;
+      fill(X(u), G + 1, z, X(u), G + 4, z, u === U1 ? B.CONCRETE : B.BRICK);
+      if ((u + z) % 2 === 0) set(X(u), G + 5, z, wool);
+    }
+    // угловые башни 5×5 высотой 10 с лестницей снаружи
+    for (const [cu, cz, su, sz] of [[U0, Z0, 1, 1], [U0, Z1, 1, -1], [U1, Z0, -1, 1], [U1, Z1, -1, -1]]) {
+      for (let a = 0; a < 5; a++) for (let b = 0; b < 5; b++) {
+        const u = cu + su * a, z = cz + sz * b, edge = a === 0 || b === 0 || a === 4 || b === 4;
+        if (edge) fill(X(u), G + 1, z, X(u), G + 9, z, (a + b) % 4 === 0 ? B.LOG : B.BRICK);
+        set(X(u), G + 10, z, B.PLANKS);
+        if (edge && (a + b) % 2 === 0) set(X(u), G + 11, z, wool);
+        if (edge && a === 2) fill(X(u), G + 7, z, X(u), G + 7, z, 0);     // бойницы
+      }
+      // лестница вдоль стены к площадке башни
+      for (let k = 1; k <= 10; k++) {
+        const u = cu + su * 2, z = cz + sz * (5 + 10 - k);
+        fill(X(u), G + 1, z, X(u), G + k, z, k === 10 ? B.PLANKS : B.LOG);
+      }
+      fill(X(cu + su * 2), G + 10, cz + sz * 4, X(cu + su * 2), G + 11, cz + sz * 4, 0);
+    }
+    // цитадель с яйцом
+    const K0 = 14, K1 = 27, KZ0 = 55, KZ1 = 73;
+    for (let u = K0; u <= K1; u++) for (let z = KZ0; z <= KZ1; z++) {
+      const edge = u === K0 || u === K1 || z === KZ0 || z === KZ1;
+      if (edge) {
+        const door = (u === K1 && Math.abs(z - CZ_) <= 1) || ((z === KZ0 || z === KZ1) && u >= 19 && u <= 21) || (u === K0 && Math.abs(z - CZ_) <= 1);
+        if (!door) { fill(X(u), G + 1, z, X(u), G + 5, z, metal); if ((u + z) % 3 === 0) set(X(u), G + 3, z, B.GLASS); }
+        else set(X(u), G + 4, z, metal), set(X(u), G + 5, z, metal);
+      }
+      // крыша с проёмом над яйцом
+      if (!(u >= 18 && u <= 22 && z >= 61 && z <= 67)) set(X(u), G + 6, z, B.CONCRETE);
+    }
+    for (let du = -1; du <= 1; du++) for (let dz = -1; dz <= 1; dz++) set(X(20 + du), G + 1, CZ_ + dz, B.STEEL);
+    for (const dz of [-4, 4]) for (let du = -2; du <= 2; du++) set(X(20 + du), G + 1, CZ_ + dz, B.SANDBAG);
+    info.eggs.push({ team, x: X(20) + 0.5, y: G + 2, z: CZ_ + 0.5 });
+    set(X(16), G + 1, 58, B.LAMP); set(X(16), G + 1, 70, B.LAMP);
+    // казармы-респаун у задней стены
+    for (let k = 0; k < 8; k++) info.spawns[team].push([X(9 + (k % 2) * 2) + 0.5, G + 1, 47 + k * 5 + 0.5]);
+    // мешки и ящики во дворе
+    for (const z of [48, 52, 76, 80]) for (let du = 0; du < 3; du++) set(X(32 + du), G + 1, z, B.SANDBAG);
+    for (const z of [58, 70]) { set(X(37), G + 1, z, B.CRATE); set(X(37), G + 2, z, B.CRATE); set(X(38), G + 1, z, B.CRATE); }
+    // спуск в главный туннель (из двора к воротам)
+    fill(X(29), G + 1, CZ_ - 2, X(29), G + 2, CZ_ + 2, B.SANDBAG);
+    fill(X(29), G + 1, CZ_ - 1, X(29), G + 2, CZ_ + 1, 0);
+    stairs(X(30), CZ_, dir, G + 1);
+    info.bases.push({ team, x0: Math.min(X(U0), X(U1)), x1: Math.max(X(U0), X(U1)), z0: Z0, z1: Z1 });
+
+    // ---------- траншеи с бруствером и доты ----------
+    for (let z = 12; z <= SZ - 13; z++) {
+      const u = 54 + ((Math.floor(z / 9) % 2) ? 2 : 0), x = X(u);
+      for (const xx of [x, x + 1]) {
+        const h = top(xx, z);
+        fill(xx, h, z, xx, h + 3, z, 0); set(xx, h - 1, z, B.DIRT);
+      }
+      const px = X(u + 2), ph = top(px, z);
+      if (z % 4 !== 0) set(px, ph + 1, z, B.SANDBAG);
+    }
+    for (const cz of [32, CZ_, 96]) {
+      const u0 = 60, x0 = X(u0), x1 = X(u0 + 6), g = top(X(u0 + 3), cz);
+      fill(x0, g, cz - 3, x1, g, cz + 3, B.CONCRETE);
+      for (let u = u0; u <= u0 + 6; u++) for (let z = cz - 3; z <= cz + 3; z++) {
+        const edge = u === u0 || u === u0 + 6 || z === cz - 3 || z === cz + 3;
+        fill(X(u), g + 1, z, X(u), g + 4, z, 0);
+        if (edge) {
+          fill(X(u), g + 1, z, X(u), g + 3, z, B.CONCRETE);
+          if (u === u0 + 6 && Math.abs(z - cz) <= 2) set(X(u), g + 2, z, 0);     // амбразура к врагу
+          if (u === u0 && Math.abs(z - cz) <= 1) fill(X(u), g + 1, z, X(u), g + 2, z, 0); // вход сзади
+        }
+        set(X(u), g + 4, z, B.CONCRETE);
+      }
+      set(X(u0 + 3), g + 1, cz, B.SANDBAG);
+    }
+
+    // ---------- передовой форт (север) со спуском в северный туннель ----------
+    {
+      const u0 = 64, u1 = 80, z0 = 21, z1 = 39, g = 19;
+      for (let u = u0 - 2; u <= u1 + 2; u++) for (let z = z0 - 2; z <= z1 + 2; z++) { const x = X(u); fill(x, g + 1, z, x, SY - 1, z, 0); fill(x, 1, z, x, g - 1, z, get(x, 1, z) || B.STONE); set(x, g, z, B.GRAVEL); H[z * SX + x] = g; }
+      for (let u = u0; u <= u1; u++) for (let z = z0; z <= z1; z++) {
+        const edge = u === u0 || u === u1 || z === z0 || z === z1;
+        if (!edge) continue;
+        if ((u === u1 || u === u0) && Math.abs(z - 30) <= 1) continue;
+        const hh = 3 + Math.floor(r() * 3) - (r() < 0.15 ? 3 : 0);            // разрушенные стены
+        if (hh > 0) fill(X(u), g + 1, z, X(u), g + hh, z, r() < 0.3 ? B.DARKSTONE : B.STONE);
+      }
+      for (const [u, z] of [[u0, z0], [u0, z1], [u1, z0], [u1, z1]]) {
+        fill(X(u), g + 1, z, X(u), g + 8, z, B.STONE);
+        fill(X(u) - 1, g + 8, z - 1, X(u) + 1, g + 8, z + 1, B.PLANKS);
+        for (const [a, b] of [[-1, -1], [1, 1], [-1, 1], [1, -1]]) set(X(u) + a, g + 9, z + b, B.SANDBAG);
+      }
+      for (let k = 1; k <= 7; k++) set(X(u0 + 1), g + k, z0 + 1 + k, B.PLANKS), fill(X(u0 + 1), g + 1, z0 + 1 + k, X(u0 + 1), g + k - 1, z0 + 1 + k, B.STONE);
+      stairs(X(68), 30, dir, g + 1);
+      for (const z of [25, 35]) for (let du = 0; du < 3; du++) set(X(72 + du), g + 1, z, B.SANDBAG);
+    }
+    // ---------- деревня у реки (юг) со спуском в южный туннель ----------
+    {
+      const houses = [[84, 72], [90, 78], [84, 86], [92, 88], [86, 108], [93, 112], [84, 46], [91, 42]];
+      for (const [hu, hz] of houses) {
+        const w0 = 5, d0 = 5, g = top(X(hu + 2), hz + 2);
+        for (let u = hu; u < hu + w0; u++) for (let z = hz; z < hz + d0; z++) {
+          const x = X(u); fill(x, g + 1, z, x, g + 6, z, 0); set(x, g, z, B.PLANKS); H[z * SX + x] = g;
+          const edge = u === hu || u === hu + w0 - 1 || z === hz || z === hz + d0 - 1;
+          const ruined = r() < 0.12;
+          if (edge && !ruined) {
+            const door = z === hz + 2 && u === (team === 0 ? hu + w0 - 1 : hu);
+            if (!door) { fill(x, g + 1, z, x, g + 3, z, (u + z) % 5 === 0 ? B.LOG : B.PLANKS); if ((u + z) % 3 === 1) set(x, g + 2, z, B.GLASS); }
+          }
+          if (r() < 0.8) set(x, g + 4, z, B.ROOF);
+        }
+        if (r() < 0.5) set(X(hu + 2), g + 1, hz + 1, r() < 0.5 ? B.TNT : B.CRATE);
+      }
+      const g = top(X(80), 98);
+      for (let u = 76; u <= 82; u++) for (let z = 95; z <= 101; z++) { const x = X(u); fill(x, g + 1, z, x, g + 6, z, 0); set(x, g, z, B.GRAVEL); H[z * SX + x] = g; }
+      for (let z = 95; z <= 101; z++) if (Math.abs(z - 98) > 1) fill(X(78), g + 1, z, X(78), g + 1, z, B.SANDBAG);
+      stairs(X(80), 98, dir, g + 1);
+    }
+  }
+
+  // ---------- мосты через каньон ----------
+  const BX0 = RX0 - 7, BX1 = RX1 + 7;
+  const deck = 18;
+  const approach = (z0, z1) => { // выравниваем подход к мосту
+    for (const [xa, xb] of [[BX0 - 6, BX0], [BX1, BX1 + 6]]) for (let x = xa; x <= xb; x++) for (let z = z0; z <= z1; z++) {
+      fill(x, deck + 1, z, x, deck + 6, z, 0); fill(x, deck - 3, z, x, deck, z, B.STONE); set(x, deck, z, B.GRAVEL);
+    }
+  };
+  // северный каменный мост с арками
+  approach(21, 26);
+  for (let x = BX0; x <= BX1; x++) {
+    fill(x, deck, 21, x, deck, 26, B.STONE);
+    set(x, deck + 1, 21, x % 2 ? B.STONE : 0); set(x, deck + 1, 26, x % 2 ? B.STONE : 0);
+    fill(x, deck + 1, 22, x, deck + 4, 25, 0);
+  }
+  for (const x of [RX0 + 1, RX0 + 6, RX0 + 7, RX1 - 1]) fill(x, 9, 22, x, deck - 1, 25, B.STONE);
+  // центральный крытый мост через остров
+  approach(60, 67);
+  for (let x = BX0; x <= BX1; x++) {
+    fill(x, deck, 60, x, deck, 67, B.PLANKS);
+    fill(x, deck + 1, 61, x, deck + 4, 66, 0);
+    for (const z of [60, 67]) { fill(x, deck + 1, z, x, deck + 3, z, x % 4 === 0 ? B.LOG : B.PLANKS); if (x % 4 === 2) set(x, deck + 2, z, 0); }
+    fill(x, deck + 4, 60, x, deck + 4, 67, B.ROOF);
+    if (x % 9 === 0) set(x, deck + 3, 61, B.LAMP);
+  }
+  for (const x of [RX0 + 2, RX1 - 2]) for (const z of [60, 67]) fill(x, 9, z, x, deck - 1, z, B.LOG);
+  // остров с руинами (под мостом — укрытие у воды)
+  for (let x = RX0 + 3; x <= RX1 - 3; x++) for (let z = 50; z <= 78; z++) {
+    if (z >= 59 && z <= 68) continue;
+    const e = Math.min(x - RX0 - 3, RX1 - 3 - x, Math.abs(z - 50), Math.abs(78 - z));
+    const t = Math.min(16, 12 + e);
+    fill(x, 9, z, x, t, z, B.STONE); set(x, t, z, e > 1 ? B.GRASS : B.SAND);
+    fill(x, t + 1, z, x, 15, z, 0);
+  }
+  for (let x = RX0 + 4; x <= RX1 - 4; x++) for (const z of [52, 76]) if (r() < 0.75) fill(x, 17, z, x, 16 + 1 + Math.floor(r() * 3), z, B.STONE);
+  for (let z = 52; z <= 76; z++) if (z < 59 || z > 68) for (const x of [RX0 + 4, RX1 - 4]) if (r() < 0.6) fill(x, 17, z, x, 18, z, B.STONE);
+  // южный мост — дощатый, без перил, с провалом посередине
+  approach(102, 104);
+  for (let x = BX0; x <= BX1; x++) {
+    if (Math.abs(x - MID) < 1.6) continue;
+    fill(x, deck, 102, x, deck, 104, B.PLANKS);
+    fill(x, deck + 1, 102, x, deck + 4, 104, 0);
+  }
+  for (const x of [RX0 + 3, RX1 - 3]) fill(x, 9, 103, x, deck - 1, 103, B.LOG);
+
+  // ---------- лес и камни на флангах ----------
+  for (let i = 0; i < 160; i++) {
+    const x = 6 + Math.floor(r() * (SX - 12)), z = 6 + Math.floor(r() * (SZ - 12));
+    if (Math.abs(x - MID) < 16 || Math.abs(z - CZ_) < 30 && (x < 50 || x > SX - 51)) continue;
+    if ((z > 16 && z < 44) && ((x > 60 && x < 84) || (x > SX - 85 && x < SX - 61))) continue;
+    const h = top(x, z);
+    if (get(x, h, z) !== B.GRASS || get(x, h + 1, z) !== 0) continue;
+    if (r() < 0.25) { // камень
+      for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) if (r() < 0.7) fill(x + dx, h + 1, z + dz, x + dx, h + 1 + Math.floor(r() * 2), z + dz, B.STONE);
+      continue;
+    }
+    const th = 4 + Math.floor(r() * 3);
+    fill(x, h + 1, z, x, h + th, z, B.LOG);
+    const t = h + th;
+    for (let dy = -2; dy <= 1; dy++) {
+      const rad = dy >= 0 ? 1 : 2;
+      for (let dx = -rad; dx <= rad; dx++) for (let dz = -rad; dz <= rad; dz++) {
+        if (Math.abs(dx) === rad && Math.abs(dz) === rad && r() < 0.6) continue;
+        if (!get(x + dx, t + dy, z + dz)) set(x + dx, t + dy, z + dz, B.LEAVES);
+      }
+    }
+    set(x, t + 1, z, B.LEAVES);
+  }
+  // воронки и укрытия на нейтральной полосе
+  for (let i = 0; i < 26; i++) {
+    const x = 60 + Math.floor(r() * (SX - 120)), z = 10 + Math.floor(r() * (SZ - 20));
+    if (Math.abs(x - MID) < 12) continue;
+    const h = top(x, z);
+    if (get(x, h + 1, z)) continue;
+    if (r() < 0.5) { for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) if (dx * dx + dz * dz < 2 && get(x + dx, h + 1, z + dz) === 0) set(x + dx, h, z + dz, 0); }
+    else for (let k = 0; k < 3; k++) if (!get(x + k, h + 1, z)) set(x + k, h + 1, z, r() < 0.2 ? B.TNT : B.SANDBAG);
+  }
+
+  // маршруты для ботов: север (каменный мост), центр (крытый), юг (дощатый)
+  const redEgg = [info.eggs[0].x, info.eggs[0].z], blueEgg = [info.eggs[1].x, info.eggs[1].z];
+  const lanes = [
+    [[44, 64], [62, 50], [80, 30], [96, 24], [111.5, 23.5], [128, 24], [150, 34], [168, 50], [184, 64]],
+    [[44, 64], [70, 64], [95, 64], [111.5, 63.5], [128, 64], [153, 64], [184, 64]],
+    [[44, 64], [62, 80], [82, 96], [96, 103], [111.5, 103], [128, 103], [150, 94], [168, 78], [184, 64]],
+  ];
+  info.routes = mirrorRoutes(lanes, redEgg, blueEgg);
+  return info;
+}
