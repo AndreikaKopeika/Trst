@@ -13,7 +13,8 @@ const store = {
 };
 
 const isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
-if (!isTouch) document.body.classList.add('desktop');
+const coarse = matchMedia('(pointer: coarse)').matches;
+if (!coarse) document.body.classList.add('desktop');
 
 const settings = {
   sens: store.get('sens', 1),
@@ -21,10 +22,11 @@ const settings = {
   sound: store.get('sound', true),
   leftFire: store.get('leftFire', true),
   view: store.get('view', 'first'),
+  fov: store.get('fov', coarse ? 75 : 85),
 };
 
 const canvas = $('game');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', stencil: false });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: !coarse, powerPreference: 'high-performance', stencil: false });
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 let pixelRatio = 1, dynScale = 1;
 function basePR() {
@@ -45,6 +47,16 @@ const input = new Input(canvas);
 input.sens = settings.sens;
 let game = null;
 let paused = false;
+input.onMode = (m) => { document.body.classList.toggle('desktop', m === 'desktop'); updateLockHint(); };
+input.onLockChange = (locked) => {
+  updateLockHint();
+  // вышли из захвата мыши (Esc) во время игры — пауза
+  if (!locked && game && game.ready && !paused && input.mode === 'desktop' && document.body.classList.contains('playing')) setPause(true);
+};
+function updateLockHint() {
+  const show = input.mode === 'desktop' && !input.locked && !!game && !paused && document.body.classList.contains('playing');
+  $('lockHint').classList.toggle('hidden', !show);
+}
 
 // ---------- меню ----------
 let team = store.get('team', 0);
@@ -55,6 +67,10 @@ function selTeam(t) {
   document.querySelectorAll('.teamBtn').forEach(b => b.classList.toggle('sel', Number(b.dataset.team) === t));
 }
 selTeam(team);
+let mapId = store.get('map', 'classic');
+function selMap(m) { mapId = m; document.querySelectorAll('.mapBtn').forEach(b => b.classList.toggle('sel', b.dataset.map === m)); store.set('map', m); }
+selMap(mapId);
+document.querySelectorAll('.mapBtn').forEach(b => b.addEventListener('click', () => selMap(b.dataset.map)));
 document.querySelectorAll('.teamBtn').forEach(b => b.addEventListener('click', () => selTeam(Number(b.dataset.team))));
 const urlRoom = new URLSearchParams(location.search).get('room');
 if (urlRoom) { $('roomCode').value = urlRoom.toUpperCase(); status('Тебя пригласили! Выбери команду и жми «Войти»'); }
@@ -91,6 +107,8 @@ function enterPlay() {
   document.body.classList.add('playing');
   input.active = true;
   input.reset();
+  if (input.mode === 'desktop') input.lock();
+  updateLockHint();
   $('btnFire2').classList.toggle('hidden', !settings.leftFire);
   if (game && game.code) { $('pauseRoom').textContent = 'Код комнаты: ' + game.code; }
 }
@@ -114,7 +132,7 @@ $('btnSolo').addEventListener('click', async () => {
   loading(true, 'Строим мир…');
   await new Promise(r => setTimeout(r, 30));
   game = makeGame('solo', null, '');
-  game.startHost(n, team, Math.max(1, Number($('botCount').value)));
+  game.startHost(n, team, Math.max(1, Number($('botCount').value)), mapId);
   applySize();
 });
 
@@ -136,7 +154,7 @@ $('btnHost').addEventListener('click', async () => {
   await new Promise(r => setTimeout(r, 30));
   game = makeGame('host', net, code);
   game.code = code;
-  game.startHost(n, team, Number($('botCount').value));
+  game.startHost(n, team, Number($('botCount').value), mapId);
   applySize();
   const via = net.ok ? (net.ok[0] && net.ok[1] ? '' : net.ok[0] ? ' (только напрямую)' : ' (только через сервер)') : '';
   hud.banner('КОД КОМНАТЫ: ' + code, 'warn', 9, 'Отправь код другу (меню ☰ → Ссылка). Не сворачивай игру, пока друг подключается!' + via);
@@ -173,12 +191,16 @@ function setPause(on) {
   $('pauseMenu').classList.toggle('hidden', !on);
   input.active = !on && !!game;
   if (on) { input.reset(); if (document.pointerLockElement) document.exitPointerLock(); }
+  updateLockHint();
   if (on && game) {
     $('pauseRoom').innerHTML = game.code ? `Код комнаты: <b style="letter-spacing:3px;color:#ffd23a">${game.code}</b> <button id="btnCopy2" style="padding:4px 10px">Ссылка</button>` : 'Офлайн-игра с ботами';
     const c2 = $('btnCopy2'); if (c2) c2.onclick = copyLink;
   }
 }
-$('btnResume').addEventListener('click', () => { setPause(false); goFullscreen(); });
+$('btnResume').addEventListener('click', () => { setPause(false); if (input.mode === 'desktop') input.lock(); else goFullscreen(); });
+$('lockHint').addEventListener('click', () => input.lock());
+$('fov').value = settings.fov; $('fovVal').textContent = settings.fov + '°';
+$('fov').addEventListener('input', (e) => { settings.fov = Number(e.target.value); $('fovVal').textContent = settings.fov + '°'; store.set('fov', settings.fov); if (game) game.baseFov = settings.fov; });
 $('btnLeave').addEventListener('click', () => exitToMenu(''));
 $('btnView').textContent = 'Вид: ' + (settings.view === 'third' ? 'от 3-го лица' : 'от 1-го лица');
 $('btnView').addEventListener('click', () => { if (game) game.setView(!game.firstPerson); });

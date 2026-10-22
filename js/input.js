@@ -11,6 +11,11 @@ export class Input {
     this.sens = 1;
     this.keys = new Set();
     this.isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+    // какой способ ввода сейчас: палец или мышь (на ноутбуках с сенсорным экраном бывают оба)
+    this.mode = matchMedia('(pointer: coarse)').matches ? 'touch' : 'desktop';
+    this.onMode = null; this.onLockChange = null;
+    this.lastTouch = 0;
+    this.locked = false;
     this.stickBase = document.getElementById('stickBase');
     this.stickKnob = document.getElementById('stickKnob');
     this.stickR = 55;
@@ -23,10 +28,17 @@ export class Input {
 
     // мышь/клавиатура
     canvas.addEventListener('mousedown', (e) => {
-      if (!this.active || this.isTouchEvent) return;
-      if (document.pointerLockElement !== canvas) { canvas.requestPointerLock?.(); return; }
+      if (!this.active || performance.now() - this.lastTouch < 800) return;
+      this.setMode('desktop');
+      if (document.pointerLockElement !== canvas) { this.lock(); return; }
       if (e.button === 0) this.held.add('mouseL');
       if (e.button === 2) this.held.add('mouseR');
+      if (e.button === 1) { this.taps.push('nade'); e.preventDefault(); }
+    });
+    document.addEventListener('pointerlockchange', () => {
+      this.locked = document.pointerLockElement === canvas;
+      if (!this.locked) { this.held.delete('mouseL'); this.held.delete('mouseR'); }
+      if (this.onLockChange) this.onLockChange(this.locked);
     });
     window.addEventListener('mouseup', (e) => {
       if (e.button === 0) this.held.delete('mouseL');
@@ -38,6 +50,7 @@ export class Input {
       this.lookDX += e.movementX * 0.6; this.lookDY += e.movementY * 0.6;
     });
     window.addEventListener('keydown', (e) => {
+      if (e.target && e.target.tagName !== 'INPUT') this.setMode('desktop');
       if (!this.active) return;
       if (e.target && e.target.tagName === 'INPUT') return;
       const k = e.code;
@@ -46,7 +59,8 @@ export class Input {
         if (k === 'KeyG') this.taps.push('nade');
         if (k === 'KeyQ' || k === 'KeyB') this.taps.push('build');
         if (k === 'KeyV') this.taps.push('view');
-        if (k === 'Tab') this.taps.push('score');
+        if (k === 'Tab') this.taps.push('scoreOn');
+        if (k === 'KeyE') this.taps.push('nade');
         if (k === 'Escape') this.taps.push('pause');
         if (k === 'KeyF') this.taps.push('aim');
         if (k >= 'Digit1' && k <= 'Digit7') this.taps.push('w' + (Number(k.slice(5)) - 1));
@@ -54,13 +68,23 @@ export class Input {
       this.keys.add(k);
       if (k === 'Tab' || k === 'Space') e.preventDefault();
     });
-    window.addEventListener('keyup', (e) => this.keys.delete(e.code));
+    window.addEventListener('keyup', (e) => { this.keys.delete(e.code); if (e.code === 'Tab' && this.active) this.taps.push('scoreOff'); });
     window.addEventListener('wheel', (e) => { if (this.active) this.taps.push(e.deltaY > 0 ? 'next' : 'prev'); });
     window.addEventListener('blur', () => { this.keys.clear(); this.held.clear(); this.touches.clear(); this.move.x = this.move.y = 0; });
   }
 
+  setMode(m) { if (m !== this.mode) { this.mode = m; if (this.onMode) this.onMode(m); } }
+  lock() {
+    const c = this.canvas;
+    if (!c.requestPointerLock) return;
+    try {
+      const r = c.requestPointerLock({ unadjustedMovement: true }); // "сырое" движение мыши без ускорения
+      if (r && r.catch) r.catch(() => { try { c.requestPointerLock(); } catch (e) { /* ignore */ } });
+    } catch (e) { try { c.requestPointerLock(); } catch (e2) { /* ignore */ } }
+  }
   onTouchStart(e) {
-    this.isTouchEvent = true;
+    this.lastTouch = performance.now();
+    this.setMode('touch');
     if (!this.active) return;
     for (const t of e.changedTouches) {
       const el = t.target && t.target.closest ? t.target.closest('[data-btn]') : null;

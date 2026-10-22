@@ -1,5 +1,6 @@
 // Воксельный мир: данные, генерация карты, рейкаст, коллизии.
-import { BLOCKS, B } from './blocks.js';
+import { BLOCKS, B, SOLID, LIQUID } from './blocks.js';
+import { gen2Fort, genDust2 } from './maps.js';
 
 export const SX = 112, SY = 40, SZ = 60;
 export const CHUNK = 16;
@@ -55,7 +56,8 @@ export class World {
     if (x < 0 || z < 0 || x >= SX || z >= SZ || y < 0 || y >= SY) return 0;
     return this.data[(y * SZ + z) * SX + x];
   }
-  solid(x, y, z) { return this.get(x, y, z) !== 0; }
+  solid(x, y, z) { return SOLID[this.get(x, y, z)] === 1; }
+  liquid(x, y, z) { return LIQUID[this.get(x, y, z)] === 1; }
   set(x, y, z, id, dmg = 0) {
     if (!this.inside(x, y, z)) return;
     const i = this.idx(x, y, z);
@@ -69,7 +71,18 @@ export class World {
   }
 
   // ---------- генерация ----------
-  generate(seed) {
+  generate(seed, map = 'classic') {
+    this.mapId = map;
+    if (map === '2fort' || map === 'dust2') {
+      this.data.fill(0); this.dmg.fill(0);
+      const info = map === '2fort' ? gen2Fort(this, seed) : genDust2(this, seed);
+      this.base = new Uint8Array(this.data);
+      this.info = info;
+      return info;
+    }
+    return this.genClassic(seed);
+  }
+  genClassic(seed) {
     const noise = makeNoise(seed);
     const noise2 = makeNoise(seed * 7 + 3);
     const r = mulberry(seed * 13 + 5);
@@ -254,6 +267,7 @@ export class World {
       void back;
     }
 
+    info.sky = 0x9fd0ff; info.space = 'open'; info.name = 'Курятник';
     this.base = new Uint8Array(d);
     this.info = info;
     return info;
@@ -287,7 +301,7 @@ export class World {
     for (let i = 0; i < 400; i++) {
       if (y >= SY && dy >= 0) return null;
       const id = (x < 0 || z < 0 || x >= SX || z >= SZ || y < 0) ? (y < 0 ? B.BEDROCK : 0) : (y >= SY ? 0 : this.data[(y * SZ + z) * SX + x]);
-      if (id && !(skipGlass && BLOCKS[id].glass)) return { x, y, z, id, nx, ny, nz, dist: t };
+      if (id && SOLID[id] && !(skipGlass && BLOCKS[id].glass)) return { x, y, z, id, nx, ny, nz, dist: t };
       if (x < -1 || z < -1 || x > SX || z > SZ) return null;
       if (tMX < tMY && tMX < tMZ) { t = tMX; if (t > maxDist) return null; x += stepX; tMX += tDX; nx = -stepX; ny = 0; nz = 0; }
       else if (tMY < tMZ) { t = tMY; if (t > maxDist) return null; y += stepY; tMY += tDY; nx = 0; ny = -stepY; nz = 0; }
@@ -303,7 +317,7 @@ export class World {
     const z0 = Math.floor(minZ), z1 = Math.floor(maxZ - 1e-6);
     for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) {
       if (y >= SY) continue;
-      if (this.get(x, y, z)) return true;
+      if (SOLID[this.get(x, y, z)]) return true;
     }
     return false;
   }

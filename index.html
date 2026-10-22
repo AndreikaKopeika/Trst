@@ -20,6 +20,7 @@
 <!-- ============ ИГРОВОЙ ИНТЕРФЕЙС ============ -->
 <div id="hud" class="hidden">
   <div id="scope"><div class="scope-glass"></div><div class="scope-ring"></div><svg class="ret ret-pgo" viewBox="-100 -100 200 200" aria-hidden="true"><g stroke="#101010" stroke-width="0.9" fill="none" stroke-linecap="round"><path d="M-6 6 L0 0 L6 6"/><path d="M-4 11.8 L0 7.8 L4 11.8"/><path d="M-4 19.6 L0 15.6 L4 19.6"/><path d="M-4 27.4 L0 23.4 L4 27.4"/><path d="M-4 35.2 L0 31.2 L4 35.2"/><line x1="-62" y1="15.6" x2="-9" y2="15.6"/><line x1="9" y1="15.6" x2="62" y2="15.6"/><line x1="8.6" y1="12.6" x2="8.6" y2="15.6"/><line x1="-8.6" y1="12.6" x2="-8.6" y2="15.6"/><line x1="17.2" y1="10.6" x2="17.2" y2="15.6"/><line x1="-17.2" y1="10.6" x2="-17.2" y2="15.6"/><line x1="25.8" y1="12.6" x2="25.8" y2="15.6"/><line x1="-25.8" y1="12.6" x2="-25.8" y2="15.6"/><line x1="34.4" y1="10.6" x2="34.4" y2="15.6"/><line x1="-34.4" y1="10.6" x2="-34.4" y2="15.6"/><line x1="43.0" y1="12.6" x2="43.0" y2="15.6"/><line x1="-43.0" y1="12.6" x2="-43.0" y2="15.6"/><line x1="51.6" y1="10.6" x2="51.6" y2="15.6"/><line x1="-51.6" y1="10.6" x2="-51.6" y2="15.6"/><line x1="0" y1="38.2" x2="0" y2="62"/><line x1="-74" y1="60" x2="-30" y2="60"/><line x1="-70" y1="60" x2="-70" y2="28.1"/><line x1="-72" y1="28.1" x2="-68" y2="28.1"/><line x1="-54" y1="60" x2="-54" y2="44.0"/><line x1="-56" y1="44.0" x2="-52" y2="44.0"/><line x1="-38" y1="60" x2="-38" y2="52.0"/><line x1="-40" y1="52.0" x2="-36" y2="52.0"/></g><g fill="#101010" font-size="5.5" font-family="system-ui,sans-serif" font-weight="700"><text x="7" y="12.3">25</text><text x="7" y="20.1">50</text><text x="7" y="27.9">75</text><text x="7" y="35.7">100</text><text x="-62" y="11.6">10</text><text x="55" y="11.6">10</text><text x="-70" y="67" text-anchor="middle">25</text><text x="-54" y="67" text-anchor="middle">50</text><text x="-38" y="67" text-anchor="middle">100</text><text x="-74" y="30" font-size="4.5">🐔 1.45 м</text></g></svg><svg class="ret ret-pso" viewBox="-100 -100 200 200" aria-hidden="true"><g stroke="#101010" stroke-width="1" fill="none"><path d="M-7 7 L0 0 L7 7"/><path d="M-4 10.2 L0 6.2 L4 10.2"/><path d="M-4 13.4 L0 9.4 L4 13.4"/><path d="M-4 16.6 L0 12.6 L4 16.6"/><line x1="-70" y1="0" x2="-12" y2="0"/><line x1="12" y1="0" x2="70" y2="0"/><line x1="22.5" y1="-3" x2="22.5" y2="0"/><line x1="-22.5" y1="-3" x2="-22.5" y2="0"/><line x1="33.0" y1="-3" x2="33.0" y2="0"/><line x1="-33.0" y1="-3" x2="-33.0" y2="0"/><line x1="43.5" y1="-3" x2="43.5" y2="0"/><line x1="-43.5" y1="-3" x2="-43.5" y2="0"/><line x1="54.0" y1="-3" x2="54.0" y2="0"/><line x1="-54.0" y1="-3" x2="-54.0" y2="0"/><line x1="64.5" y1="-3" x2="64.5" y2="0"/><line x1="-64.5" y1="-3" x2="-64.5" y2="0"/><line x1="0" y1="34" x2="0" y2="70"/><polyline points="-75,47.2 -69,49.8 -63,51.1 -57,51.9 -51,52.4 -45,52.8 -39,53.1 -33,53.3 -27,53.4"/><line x1="-75" y1="55" x2="-27" y2="55"/></g><g fill="#101010" font-size="5" font-family="system-ui,sans-serif" font-weight="700"><text x="-75" y="62" text-anchor="middle">2</text><text x="-63" y="62" text-anchor="middle">4</text><text x="-51" y="62" text-anchor="middle">6</text><text x="-39" y="62" text-anchor="middle">8</text><text x="-27" y="62" text-anchor="middle">10</text></g></svg></div>
+  <div id="underwater" class="hidden"></div>
   <div id="dmgFlash"></div>
   <div id="dirInd"></div>
 
@@ -59,6 +60,8 @@
   </div>
 
   <!-- сенсорное управление -->
+  <div id="lockHint" class="hidden ui-allow"><b>Кликни, чтобы играть</b><span>Мышь — обзор · Esc — меню</span></div>
+  <div id="keyHints"><b>ЛКМ</b> огонь <b>ПКМ</b> прицел <b>R</b> перезарядка <b>G</b> граната <b>Q</b> стройка <b>Shift</b> бег <b>Пробел</b> прыжок <b>1–7</b> оружие <b>V</b> вид <b>Tab</b> счёт</div>
   <div id="touchUI">
     <div id="stickBase"><div id="stickKnob"></div></div>
     <div class="btn big" id="btnFire" data-btn="fire"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2v6M12 16v6M2 12h6M16 12h6" stroke="currentColor" stroke-width="2"/></svg></div>
@@ -83,6 +86,7 @@
         <select id="quality"><option value="low">Низкая (быстро)</option><option value="med">Средняя</option><option value="high">Высокая</option></select>
       </label>
       <label>Громкость <input type="range" id="volume" min="0" max="1.5" step="0.05" value="1"><span id="volVal">100%</span></label>
+      <label>Поле зрения <input type="range" id="fov" min="65" max="105" step="1" value="80"><span id="fovVal">80°</span></label>
       <label class="row"><input type="checkbox" id="soundOn" checked> Звук</label>
       <label class="row"><input type="checkbox" id="leftFire" checked> Кнопка огня слева</label>
       <div class="buttons">
@@ -108,6 +112,13 @@
         <button class="teamBtn blue" data-team="1">🔵 Синие</button>
       </div>
     </div>
+    <div class="field">Карта
+      <div class="teams maps">
+        <button class="mapBtn sel" data-map="classic" title="Холмы, деревья, руины и река">🌳 Курятник</button>
+        <button class="mapBtn" data-map="2fort" title="Два форта, мост и река в каньоне">🏰 2Fort</button>
+        <button class="mapBtn" data-map="dust2" title="Пустынный город: Длинная, мид, B">🏜️ Dust 2</button>
+      </div>
+    </div>
     <label class="field">Боты в каждой команде
       <select id="botCount"><option value="0">0</option><option value="1">1</option><option value="2" selected>2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select>
     </label>
@@ -128,7 +139,8 @@
       <p><b>Цель:</b> разбить Золотое Яйцо врага и защитить своё. Строй стены, бункеры, ловушки из ТНТ.</p>
       <p><b>Телефон:</b> левая половина экрана — джойстик, правая — обзор. Кнопку огня можно тянуть, чтобы целиться на ходу. Удержание прыжка в воздухе — курица планирует.</p>
       <p><b>Оружие:</b> автомат, пулемёт, снайперка, тяжёлый пулемёт, дробовик, базука, гранаты и режим стройки.</p>
-      <p><b>ПК:</b> WASD, мышь, пробел, R — перезарядка, G — граната, Q — стройка, 1–7 — оружие, F/ПКМ — прицел.</p>
+      <p><b>ПК:</b> кликни по экрану — мышь захватится. WASD — ходьба, Shift — бег, пробел — прыжок/планирование, ЛКМ — огонь, ПКМ — прицел (держать), R — перезарядка, G или колёсико — граната, Q — стройка, 1–7 и колесо — оружие, V — вид, Tab — счёт, Esc — меню. В меню паузы есть поле зрения, чувствительность и громкость.</p>
+      <p><b>Карты:</b> «Курятник» — холмы и руины; 2Fort — два форта, крытый мост, река и канализация; Dust 2 — Длинная, мид, туннели и точка B.</p>
       <p><b>С другом:</b> один нажимает «Создать комнату» и отправляет ссылку/код, второй вводит код и жмёт «Войти».</p>
     </details>
   </div>

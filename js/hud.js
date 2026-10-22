@@ -20,7 +20,7 @@ export class HUD {
     const wc = $('weapons'); wc.innerHTML = '';
     this.wslots = WEAPONS.map((w, i) => {
       const d = document.createElement('div');
-      d.className = 'wslot'; d.dataset.btn = 'w' + i; d.textContent = w.short;
+      d.className = 'wslot'; d.dataset.btn = 'w' + i; d.dataset.key = String(i + 1); d.textContent = w.short;
       wc.appendChild(d); return d;
     });
   }

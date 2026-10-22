@@ -389,6 +389,14 @@ export class FX {
     this.dust.spawn(p.x, p.y, p.z, rnd(-0.4, 0.4), rnd(0.2, 0.8), rnd(-0.4, 0.4), rnd(0.8, 1.6), 0.25, 1.1, 0.72, 0.72, 0.72, { drag: 1.5, alpha: 0.5 });
   }
 
+  splash(p) {
+    for (let i = 0; i < 26 * this.q + 6; i++) {
+      const a = Math.random() * 6.28, sp = rnd(1, 4);
+      this.dust.spawn(p.x, p.y + 0.6, p.z, Math.cos(a) * sp, rnd(3, 7), Math.sin(a) * sp, rnd(0.5, 0.9), rnd(0.08, 0.16), 0.04, 0.75, 0.88, 1, { grav: 16, alpha: 0.8 });
+    }
+    this.dust.spawn(p.x, p.y + 0.7, p.z, 0, 0.5, 0, 0.8, 0.4, 1.6, 0.9, 0.95, 1, { drag: 3, alpha: 0.4 });
+  }
+
   spawnPuff(p, team) {
     const c = hexRGB(TEAM_COLORS[team]);
     for (let i = 0; i < 20; i++) this.glow.spawn(p.x + rnd(-0.4, 0.4), p.y + rnd(0, 1.5), p.z + rnd(-0.4, 0.4), rnd(-1, 1), rnd(1, 3), rnd(-1, 1), rnd(0.4, 0.8), 0.25, 0.05, c[0], c[1], c[2]);

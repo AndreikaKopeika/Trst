@@ -22,6 +22,8 @@ function inBase(g, team, x, z, pad = 0) {
 }
 
 function route(g, b) {
+  const R = g.world.info.routes;
+  if (R) { const lanes = R[b.team]; return lanes[Math.floor(Math.random() * lanes.length)].map(p => p.slice()); }
   const own = g.world.info.bases[b.team], en = g.world.info.bases[1 - b.team];
   const dir = b.team === 0 ? 1 : -1;
   const ownFront = b.team === 0 ? own.x1 : own.x0;
@@ -83,6 +85,10 @@ export function updateBot(g, b, dt) {
     else if (d < want - 4) { gx = b.pos.x * 2 - t.pos.x; gz = b.pos.z * 2 - t.pos.z; }
     strafe = ai.strafe;
     shoot = ai.react <= 0 && !(w.key === 'rpg' && d < 5);
+  } else if (ai.role === 'defend' && g.eggs[b.team] && b.pos.distanceTo(g.eggs[b.team].pos) > 14 && g.nav) {
+    // защитник далеко от своего яйца — возвращается по карте путей
+    const nx = g.nav.next(b.team, b.pos);
+    if (nx) { gx = nx.x; gz = nx.z; ai.navDig = nx.dig; ai.navUp = nx.up; }
   } else if (ai.role === 'defend') {
     const egg = g.eggs[b.team];
     if (egg) {
@@ -95,11 +101,16 @@ export function updateBot(g, b, dt) {
       if (Math.hypot(gx - b.pos.x, gz - b.pos.z) < 1.5) { gx = null; }
     }
   } else {
-    const wp = ai.route[Math.min(ai.wp, ai.route.length - 1)];
-    gx = wp[0]; gz = wp[1];
-    if (ai.wp < ai.route.length - 1 && Math.hypot(gx - b.pos.x, gz - b.pos.z) < 3) ai.wp++;
-    // пропускаем точки маршрута, если уже за ними
-    if (ai.wp === 0 && !inBase(g, b.team, b.pos.x, b.pos.z)) ai.wp = 2;
+    // атака: идём к вражескому яйцу по карте путей (обходы, лестницы, пробивание стен)
+    const nx = g.nav ? g.nav.next(1 - b.team, b.pos) : null;
+    if (nx) { gx = nx.x; gz = nx.z; ai.navDig = nx.dig; ai.navUp = nx.up; ai.navOk = true; }
+    else {
+      ai.navOk = false;
+      const wp = ai.route[Math.min(ai.wp, ai.route.length - 1)];
+      gx = wp[0]; gz = wp[1];
+      if (ai.wp < ai.route.length - 1 && Math.hypot(gx - b.pos.x, gz - b.pos.z) < 3) ai.wp++;
+      if (!g.world.info.routes && ai.wp === 0 && !inBase(g, b.team, b.pos.x, b.pos.z)) ai.wp = 2;
+    }
     if (ai.eggVis) {
       const egg = g.eggs[1 - b.team];
       aim = { x: egg.pos.x, y: egg.pos.y + 0.6, z: egg.pos.z };
@@ -131,6 +142,12 @@ export function updateBot(g, b, dt) {
 
   // --- препятствия ---
   let jump = false;
+  if (ai.navDig && !aim && !t) {
+    const [dx_, dy_, dz_] = ai.navDig;
+    if (Math.hypot(dx_ + 0.5 - b.pos.x, dz_ + 0.5 - b.pos.z) < 2.2) { aim = { x: dx_ + 0.5, y: dy_ + 0.5, z: dz_ + 0.5 }; shoot = true; ai.digging = true; }
+  }
+  if (ai.navUp && b.onGround) jump = true;
+  ai.navDig = null; ai.navUp = false;
   const W_ = g.world;
   const fx0 = Math.floor(b.pos.x), fz0 = Math.floor(b.pos.z), fy = Math.floor(b.pos.y + 0.1);
   if (ml > 0.1) {
@@ -198,6 +215,7 @@ export function updateBot(g, b, dt) {
     }
   }
   if (!b.onGround && b.vel.y < -3) jump = true; // планирует
+  if (b.inWater) jump = true;                     // в воде — всплываем и плывём
 
   const speed = SPEED * (w.speedMul || 1) * (shoot && w.key === 'hmg' ? 0.7 : 1);
   g.stepBody(b, dt, mx, mz, speed, jump);

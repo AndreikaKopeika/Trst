@@ -9,6 +9,7 @@ import { WEAPONS, W, EXPLOSIONS, MAX_HP, EGG_HP, RESPAWN_TIME, START_RES, MINE_D
 import { updateBot, BOT_NAMES, BOT_WEAPONS } from './bots.js';
 import { esc } from './hud.js';
 import { ViewModel } from './viewmodel.js';
+import { Nav } from './nav.js';
 
 export const HW = 0.32, PH = 1.45, EYE = 1.32;
 const GRAV = 25, JUMP_V = 8.3, GLIDE_V = -2.3, SPEED = 5.4;
@@ -84,17 +85,17 @@ export class Game {
     const scene = this.scene = new THREE.Scene();
     scene.background = new THREE.Color(SKY);
     this.applyQuality(this.settings.quality);
-    scene.add(new THREE.HemisphereLight(0xe8f4ff, 0x7a6a4a, 1.6));
-    const sun = new THREE.DirectionalLight(0xfff2dd, 1.8); sun.position.set(0.5, 1, 0.3); scene.add(sun);
+    this.hemi = new THREE.HemisphereLight(0xe8f4ff, 0x7a6a4a, 1.6); scene.add(this.hemi);
+    const sun = this.sun = new THREE.DirectionalLight(0xfff2dd, 1.8); sun.position.set(0.5, 1, 0.3); scene.add(sun);
     this.camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.05, 400);
     this.camera.rotation.order = 'YXZ';
-    this.baseFov = 75;
+    this.baseFov = this.settings.fov || 75;
 
     const atlas = buildAtlas();
     this.atlasURL = atlas.canvas.toDataURL();
     this.world = new World();
     this.mesher = new Mesher(this.world, scene, atlas.texture);
-    this.world.onChange = (x, y, z) => this.mesher.markBlock(x, y, z);
+    this.world.onChange = (x, y, z) => { this.mesher.markBlock(x, y, z); if (this.nav) this.nav.markDirty(); };
     this.fx = new FX(scene, this.world, this.settings.quality);
     this.vm = new ViewModel(this.renderer, atlas.texture);
     this.vm.onEvent = (e) => {
@@ -177,8 +178,8 @@ export class Game {
   }
 
   // ===================== СТАРТ =====================
-  startHost(name, team, botsPerTeam) {
-    this.loadWorld(Math.floor(Math.random() * 1e9));
+  startHost(name, team, botsPerTeam, map = 'classic') {
+    this.loadWorld(Math.floor(Math.random() * 1e9), map);
     this.botsPerTeam = botsPerTeam;
     this.myId = 0;
     this.me = this.addPlayer(0, name, team, false, true);
@@ -237,15 +238,30 @@ export class Game {
     if (this.o.onReady) this.o.onReady();
   }
 
-  loadWorld(seed) {
+  loadWorld(seed, map) {
     this.seed = seed;
-    this.world.generate(seed);
+    if (map) this.mapId = map;
+    this.world.generate(seed, this.mapId || 'classic');
+    this.applyEnvironment(this.world.info);
     this.mesher.rebuildAll();
     this.fx.clear();
     for (const e of this.eggs) this.scene.remove(e.mesh);
     this.eggs = this.world.info.eggs.map(e => this.makeEgg(e));
+    if (this.isHost) { this.nav = new Nav(this.world); this.nav.setGoals(this.eggs); }
     for (const pr of this.projectiles.values()) { this.scene.remove(pr.mesh); if (pr.snd) pr.snd.stop(); }
     this.projectiles.clear();
+  }
+
+  // небо, туман, свет и акустика под карту
+  applyEnvironment(info) {
+    const sky = new THREE.Color(info.sky || SKY);
+    this.scene.background = sky;
+    if (this.scene.fog) this.scene.fog.color.copy(sky);
+    const warm = info.space === 'desert';
+    this.hemi.color.setHex(warm ? 0xfff0d8 : 0xe8f4ff); this.hemi.groundColor.setHex(warm ? 0x9a7a4a : 0x7a6a4a);
+    this.sun.color.setHex(warm ? 0xffe2b0 : 0xfff2dd); this.sun.intensity = warm ? 2.2 : 1.8;
+    this.audio.setSpace(info.space || 'open');
+    this.audio.setWind && this.audio.setWind(info.space === 'canyon' ? 0.08 : warm ? 0.07 : 0.05);
   }
 
   makeEgg(e) {
@@ -306,14 +322,29 @@ export class Game {
 
   // ===================== ФИЗИКА =====================
   stepBody(p, dt, wx, wz, speed, jump) {
-    const accel = p.onGround ? 14 : 3.5;
+    const w0 = this.world;
+    const inWater = w0.liquid(Math.floor(p.pos.x), Math.floor(p.pos.y + 0.55), Math.floor(p.pos.z));
+    if (inWater && !p.inWater && p.vel.y < -4) { this.fx.splash(p.pos); this.audio.impact('soft', p.pos, 0.6); }
+    p.inWater = inWater;
+    if (inWater) speed *= 0.62;
+    const accel = p.onGround ? 14 : inWater ? 6 : 3.5;
     p.vel.x += (wx * speed - p.vel.x) * Math.min(1, accel * dt);
     p.vel.z += (wz * speed - p.vel.z) * Math.min(1, accel * dt);
     p.jumped = false;
-    if (jump && p.onGround) { p.vel.y = JUMP_V; p.jumped = true; }
-    p.vel.y -= GRAV * dt;
     p.gliding = false;
-    if (jump && !p.onGround && p.vel.y < GLIDE_V) { p.vel.y = GLIDE_V; p.gliding = true; }
+    if (inWater) {
+      // плаваем: слабая гравитация, сопротивление, прыжок — всплыть
+      p.vel.y = p.vel.y * Math.max(0, 1 - 2.5 * dt) - 7 * dt;
+      if (jump) p.vel.y = Math.min(3.4, p.vel.y + 22 * dt);
+      if (p.vel.y < -3) p.vel.y = -3;
+      // выбираемся на берег
+      const headOut = !w0.liquid(Math.floor(p.pos.x), Math.floor(p.pos.y + 1.2), Math.floor(p.pos.z));
+      if (jump && headOut && p.hitWall) p.vel.y = 6.5;
+    } else {
+      if (jump && p.onGround) { p.vel.y = JUMP_V; p.jumped = true; }
+      p.vel.y -= GRAV * dt;
+      if (jump && !p.onGround && p.vel.y < GLIDE_V) { p.vel.y = GLIDE_V; p.gliding = true; }
+    }
     if (p.vel.y < -40) p.vel.y = -40;
     this.world.moveBody(p, dt, HW, PH);
     // авто-прыжок на ступеньку в 1 блок
@@ -467,6 +498,8 @@ export class Game {
     const p = this.me;
     if (t === 'pause') { this.o.onPause && this.o.onPause(); return; }
     if (t === 'score') { this.toggleScoreboard(); return; }
+    if (t === 'scoreOn') { if (!this.sbOpen) this.toggleScoreboard(); return; }
+    if (t === 'scoreOff') { if (this.sbOpen) this.toggleScoreboard(); return; }
     if (t === 'view') { this.setView(!this.firstPerson); return; }
     if (!p.alive) return;
     if (t === 'reload') this.startReload();
@@ -537,6 +570,11 @@ export class Game {
     p.pitch = Math.max(-1.5, Math.min(1.5, p.pitch));
     this.lastLook[0] = inp.lookX; this.lastLook[1] = inp.lookY;
     for (const t of inp.taps) this.handleTap(t);
+    // ПК: прицел, пока зажата правая кнопка мыши
+    if (inp.aimHold !== this.prevAimHold) {
+      if (p.alive && p.weapon !== W.BUILD) p.aiming = !!inp.aimHold;
+      this.prevAimHold = inp.aimHold;
+    }
     if (!p.alive) { p.firing = false; return; }
     const w = WEAPONS[p.weapon];
     if (inp.fire && !w.build && this.input.isTouch) this.aimAssist(dt);
@@ -732,7 +770,7 @@ export class Game {
   canPlace(x, y, z) {
     const w = this.world;
     if (x < 0 || z < 0 || x >= SX || z >= SZ || y < 1 || y >= SY) return false;
-    if (w.get(x, y, z)) return false;
+    if (w.get(x, y, z) && !w.liquid(x, y, z)) return false;
     for (const p of this.players.values()) {
       if (!p.alive) continue;
       const P = p.pos;
@@ -874,7 +912,7 @@ export class Game {
     }
     this.n2p.set(cid, p.id); this.p2n.set(p.id, cid);
     this.net.sendTo(cid, {
-      t: 'welcome', id: p.id, seed: this.seed, roster: this.roster(), sc: this.score,
+      t: 'welcome', id: p.id, seed: this.seed, map: this.mapId, roster: this.roster(), sc: this.score,
       eggs: this.eggs.map(e => [e.hp, r2(e.pos.y)]), round: this.roundState,
     });
     const diff = this.world.diff();
@@ -1064,6 +1102,12 @@ export class Game {
   }
 
   hostTick(dt) {
+    // карта путей ботов (кусочками)
+    if (this.nav && [...this.players.values()].some(p => p.isBot)) {
+      this.navGoalT = (this.navGoalT || 0) - dt;
+      if (this.navGoalT <= 0) { this.navGoalT = 2; const k = this.eggs.map(e => e.pos.y.toFixed(0)).join(); if (k !== this.navEggKey) { this.navEggKey = k; this.nav.setGoals(this.eggs); } }
+      this.nav.update(this.now, 2500);
+    }
     // боты
     for (const p of this.players.values()) if (p.isBot) updateBot(this, p, dt);
     // регенерация здоровья через 5 сек без урона
@@ -1083,7 +1127,7 @@ export class Game {
     }
     // новый раунд
     if (this.roundState === 'end' && this.now >= this.newRoundAt) {
-      this.emit({ t: 'round', seed: Math.floor(Math.random() * 1e9) });
+      this.emit({ t: 'round', seed: Math.floor(Math.random() * 1e9), map: this.mapId });
       for (const p of this.players.values()) { p.alive = false; p.respawnAt = this.now + 1; }
     }
     // блоки
@@ -1116,7 +1160,7 @@ export class Game {
     switch (m.t) {
       case 'welcome': {
         this.myId = m.id;
-        this.loadWorld(m.seed);
+        this.loadWorld(m.seed, m.map || 'classic');
         this.diffChunks = [];
         this.onRoster({ l: m.roster, sc: m.sc });
         this.me = this.players.get(m.id);
@@ -1189,7 +1233,7 @@ export class Game {
         break;
       }
       case 'round': {
-        this.loadWorld(m.seed);
+        this.loadWorld(m.seed, m.map);
         this.score = [0, 0];
         for (const p of this.players.values()) { p.kills = 0; p.deaths = 0; p.alive = false; p.res = START_RES; p.model.root.visible = false; }
         this.roundState = 'play';
@@ -1526,6 +1570,13 @@ export class Game {
     this.updateCamera(dt);
     this.camera.updateMatrixWorld();
     this.audio.setListener(this.camera);
+    // под водой: синий оттенок и глухой звук
+    const cp = this.camera.position, uw = this.world.liquid(Math.floor(cp.x), Math.floor(cp.y), Math.floor(cp.z));
+    if (uw !== this.underwater) {
+      this.underwater = uw;
+      document.getElementById('underwater').classList.toggle('hidden', !uw);
+      if (this.audio.ears && this.audio.ctx) this.audio.ears.frequency.setTargetAtTime(uw ? 700 : 20000, this.audio.ctx.currentTime, 0.05);
+    }
     this.sunSprite.position.set(this.camera.position.x + 120, this.camera.position.y + 150, this.camera.position.z + 60);
     this.clouds.children.forEach(c => { c.position.x += dt * 1.2; if (c.position.x > 200) c.position.x = -100; });
     this.fx.update(dt);
@@ -1576,7 +1627,7 @@ export class Game {
     this.roomT = (this.roomT || 0) - dt;
     if (this.roomT > 0) { h.update(dt); return; }
     this.roomT = 0.5;
-    const code = this.o.code ? `Комната ${this.o.code}` : 'Офлайн';
+    const code = (this.o.code ? `Комната ${this.o.code}` : 'Офлайн') + ' · ' + (this.world.info.name || '');
     h.room(this.isHost ? `${code} · игроков ${[...this.players.values()].filter(q => !q.isBot).length}` : `${code} · пинг ${this.ping}мс${this.via ? ' · ' + this.via : ''}`);
     h.update(dt);
   }

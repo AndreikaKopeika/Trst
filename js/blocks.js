@@ -10,6 +10,7 @@ const T = {
   grassTop: 0, grassSide: 1, dirt: 2, stone: 3, sand: 4, logSide: 5, logTop: 6, leaves: 7,
   planks: 8, brick: 9, concrete: 10, steel: 11, glass: 12, woolRed: 13, woolBlue: 14, bedrock: 15,
   sandbag: 16, tntSide: 17, tntTop: 18, gravel: 19, darkStone: 20, crate: 21, snow: 22, lamp: 23,
+  sandstone: 24, sandstoneTop: 25, sandBrick: 26, water: 27, roof: 28, door: 29, redWood: 30, blueMetal: 31,
 };
 
 // hp — прочность; cost — цена постройки; ric — рикошет; tough — множитель урона от взрывов
@@ -36,13 +37,24 @@ export const BLOCKS = [
   { id: 19, name: 'Ящик', hp: 60, tiles: [T.crate, T.crate, T.crate], color: 0x9c7038, cost: 1 },
   { id: 20, name: 'Снег', hp: 25, tiles: [T.snow, T.dirt, T.snow], color: 0xf2f6ff },
   { id: 21, name: 'Фонарь', hp: 30, tiles: [T.lamp, T.lamp, T.lamp], color: 0xffd36b, glow: true, cost: 2 },
+  { id: 22, name: 'Песчаник', hp: 150, tiles: [T.sandstoneTop, T.sandstoneTop, T.sandstone], color: 0xd8c08a, ric: 0.2, mat: 'stone' },
+  { id: 23, name: 'Кирпич песчаника', hp: 190, tiles: [T.sandstoneTop, T.sandstoneTop, T.sandBrick], color: 0xc9ad74, ric: 0.25, mat: 'stone' },
+  { id: 24, name: 'Вода', hp: Infinity, tiles: [T.water, T.water, T.water], color: 0x3a7bd5, glass: true, liquid: true, mat: 'soft' },
+  { id: 25, name: 'Черепица', hp: 90, tiles: [T.roof, T.roof, T.roof], color: 0x8a3a2a, mat: 'stone' },
+  { id: 26, name: 'Дверь', hp: 80, tiles: [T.door, T.door, T.door], color: 0x2f5f9a, mat: 'wood' },
+  { id: 27, name: 'Красные доски', hp: 90, tiles: [T.planks, T.planks, T.redWood], color: 0xa8442f, mat: 'wood' },
+  { id: 28, name: 'Синий металл', hp: 320, tiles: [T.concrete, T.concrete, T.blueMetal], color: 0x46679a, ric: 0.6, mat: 'metal' },
 ];
 
 export const B = {
   AIR: 0, GRASS: 1, DIRT: 2, STONE: 3, SAND: 4, LOG: 5, LEAVES: 6, PLANKS: 7, BRICK: 8, CONCRETE: 9,
   STEEL: 10, GLASS: 11, WOOL_RED: 12, WOOL_BLUE: 13, BEDROCK: 14, SANDBAG: 15, TNT: 16, GRAVEL: 17,
   DARKSTONE: 18, CRATE: 19, SNOW: 20, LAMP: 21,
+  SANDSTONE: 22, SANDBRICK: 23, WATER: 24, ROOF: 25, DOOR: 26, REDWOOD: 27, BLUEMETAL: 28,
 };
+// таблицы свойств по id: твёрдый (для физики), жидкость
+export const SOLID = new Uint8Array(256), LIQUID = new Uint8Array(256);
+for (let i = 1; i < 256; i++) { const d = BLOCKS[i]; if (d) { SOLID[i] = d.liquid ? 0 : 1; LIQUID[i] = d.liquid ? 1 : 0; } }
 
 // Что можно строить (панель блоков)
 export const BUILDABLE = [B.PLANKS, B.BRICK, B.CONCRETE, B.STEEL, B.GLASS, -1 /* шерсть команды */, B.SANDBAG, B.TNT, B.LAMP];
@@ -178,6 +190,45 @@ export function buildAtlas() {
     if (border) return noisy(0x5a4a30, 10, r);
     const d = Math.hypot(x - 7.5, y - 7.5);
     return noisy(d < 4 ? 0xfff2b0 : 0xffc84a, 14, r);
+  });
+
+  paintTile(ctx, T.sandstone, (x, y) => {
+    const band = (y % 5 === 4) ? -18 : (y % 5 === 0 ? 8 : 0);
+    const c = noisy(0xd8c08a, 14, r); return [c[0] + band, c[1] + band, c[2] + band];
+  });
+  paintTile(ctx, T.sandstoneTop, () => noisy(r() < 0.1 ? 0xcdb57c : 0xdcc690, 12, r));
+  paintTile(ctx, T.sandBrick, (x, y) => {
+    const row = Math.floor(y / 4), off = row % 2 ? 4 : 0;
+    if (y % 4 === 3 || (x + off) % 8 === 7) return noisy(0xa88c58, 10, r);
+    return noisy(0xc9ad74, 14, r);
+  });
+  paintTile(ctx, T.water, (x, y) => {
+    const w = Math.sin((x + y * 0.5) * 0.8) * 10 + Math.sin(y * 1.3) * 6;
+    return [40 + w, 110 + w, 200 + w, 150];
+  });
+  paintTile(ctx, T.roof, (x, y) => {
+    const row = Math.floor(y / 4), off = row % 2 ? 2 : 0;
+    if (y % 4 === 3) return noisy(0x5a2418, 10, r);
+    if ((x + off) % 4 === 3) return noisy(0x6e2c1e, 10, r);
+    return noisy(0x9a4030, 16, r);
+  });
+  paintTile(ctx, T.door, (x, y) => {
+    const frame = x < 1 || x > 14 || y < 1 || y > 14, plank = x % 5 === 0;
+    if (frame) return noisy(0x3a2a18, 10, r);
+    if (plank) return noisy(0x23476f, 10, r);
+    if ((x === 12 || x === 3) && y === 8) return [200, 180, 90];
+    return noisy(0x2f5f9a, 14, r);
+  });
+  paintTile(ctx, T.redWood, (x, y) => {
+    if (y % 4 === 3) return noisy(0x5a1e14, 10, r);
+    const worn = r() < 0.08 ? 40 : 0;
+    const c = noisy(0xa8442f, 16, r); return [c[0] + worn, c[1] + worn, c[2] + worn];
+  });
+  paintTile(ctx, T.blueMetal, (x, y) => {
+    if (x === 0 || x === 15 || y === 0 || y === 15) return [40, 52, 72];
+    if ((x === 3 || x === 12) && (y === 3 || y === 12)) return [170, 185, 205];
+    if (y === 8) return noisy(0x3a5888, 6, r);
+    return noisy(0x46679a, 10, r);
   });
 
   const tex = new THREE.CanvasTexture(cv);
