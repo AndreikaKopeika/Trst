@@ -137,8 +137,10 @@ $('btnHost').addEventListener('click', async () => {
   game.code = code;
   game.startHost(n, team, Number($('botCount').value));
   applySize();
-  hud.banner('КОД КОМНАТЫ: ' + code, 'warn', 6, 'Отправь код или ссылку другу (меню ☰)');
+  const via = net.ok ? (net.ok[0] && net.ok[1] ? '' : net.ok[0] ? ' (только напрямую)' : ' (только через сервер)') : '';
+  hud.banner('КОД КОМНАТЫ: ' + code, 'warn', 9, 'Отправь код другу (меню ☰ → Ссылка). Не сворачивай игру, пока друг подключается!' + via);
   $('shareCode').textContent = code;
+  keepAwake();
 });
 
 $('btnJoin').addEventListener('click', async () => {
@@ -149,15 +151,19 @@ $('btnJoin').addEventListener('click', async () => {
   const n = nick();
   loading(true, 'Подключаемся к ' + code + '…');
   const net = createClient();
-  try { await net.start(code); } catch (e) {
-    net.close(); loading(false); status(e.message || 'Не удалось подключиться', true); return;
+  try { await net.start(code, (t) => loading(true, t)); } catch (e) {
+    try { net.close(); } catch (e2) { /* ignore */ }
+    loading(false); status(e.message || 'Не удалось подключиться', true); return;
   }
-  loading(true, 'Загружаем карту…');
+  loading(true, 'Соединились ' + (net.mode || '') + '. Загружаем карту…');
   game = makeGame('client', net, code);
   game.code = code;
+  game.via = net.mode || '';
   game.startClient(n, team);
   applySize();
-  setTimeout(() => { if (game && !game.ready) exitToMenu('Хост не ответил'); }, 20000);
+  keepAwake();
+  const myGame = game;
+  setTimeout(() => { if (game === myGame && !game.ready) exitToMenu('Хост не прислал карту. Попроси друга не сворачивать игру и попробуй ещё раз.'); }, 30000);
 });
 
 // ---------- пауза ----------
@@ -193,6 +199,25 @@ function copyLink() {
   else prompt('Ссылка:', url);
 }
 $('btnCopy').addEventListener('click', copyLink);
+
+// не даём экрану гаснуть во время игры
+let wakeLock = null;
+async function keepAwake() {
+  try { if (navigator.wakeLock && !wakeLock) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); } } catch (e) { /* ignore */ }
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden && game) keepAwake(); });
+
+// ошибка вместо вечной загрузки
+function showFatal(msg) {
+  if (!$('loading').classList.contains('hidden') || !game || !game.ready) {
+    console.error(msg);
+    exitToMenu('Ошибка: ' + msg);
+  }
+}
+window.addEventListener('error', (e) => {
+  const f = e.filename || '';
+  if (f.includes('/js/') && !f.includes('/lib/')) showFatal((e.message || String(e.error)) + ' (' + f.split('/').pop() + ':' + e.lineno + ')');
+});
 
 // iOS может приостановить звук — будим его при касаниях
 document.addEventListener('touchend', () => { if (audio.ctx && audio.ctx.state !== 'running') audio.init(); }, { passive: true });

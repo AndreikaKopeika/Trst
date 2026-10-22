@@ -1410,7 +1410,7 @@ export class Game {
       h.death(true, this.deathBy || '', left);
     } else h.death(false);
     const code = this.o.code ? `Комната ${this.o.code}` : 'Офлайн';
-    h.room(this.isHost ? `${code} · игроков ${[...this.players.values()].filter(q => !q.isBot).length}` : `${code} · пинг ${this.ping}мс`);
+    h.room(this.isHost ? `${code} · игроков ${[...this.players.values()].filter(q => !q.isBot).length}` : `${code} · пинг ${this.ping}мс${this.via ? ' · ' + this.via : ''}`);
     h.update(dt);
   }
 
