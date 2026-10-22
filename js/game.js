@@ -97,6 +97,12 @@ export class Game {
     this.world.onChange = (x, y, z) => this.mesher.markBlock(x, y, z);
     this.fx = new FX(scene, this.world, this.settings.quality);
     this.vm = new ViewModel(this.renderer, atlas.texture);
+    this.vm.onEvent = (e) => {
+      if (e === 'puff') return;
+      if (e === 'cluck') { this.audio.cluck(0.45, 0, 1.15); return; }
+      if (e === 'slam' || e === 'slap') this.shake = Math.min(1, this.shake + (e === 'slam' ? 0.35 : 0.2));
+      this.audio.reloadFx(e);
+    };
     this.lastLook = [0, 0];
     this.makeSky();
 
@@ -458,8 +464,8 @@ export class Game {
   startReload() {
     const p = this.me, w = WEAPONS[p.weapon];
     if (w.build || p.reloadT >= 0 || p.ammo[p.weapon] >= w.mag) return;
-    p.reloadT = w.reload; p.reloadDur = w.reload;
-    this.audio.reload(0);
+    p.reloadT = w.reload; p.reloadDur = w.reload; p.aiming = false;
+    if (!this.fpActive()) this.audio.reload(0);
   }
   throwNade() {
     const p = this.me;
@@ -510,8 +516,9 @@ export class Game {
 
     if (p.reloadT >= 0) {
       p.reloadT -= dt;
-      if (p.reloadT < p.reloadDur * 0.5 && !p.rlHalf) { p.rlHalf = true; this.audio.reload(1); }
-      if (p.reloadT < 0) { p.ammo[p.weapon] = w.mag; p.rlHalf = false; this.audio.reload(1); }
+      const fpSnd = !this.fpActive(); // от первого лица звуки даёт анимация
+      if (p.reloadT < p.reloadDur * 0.5 && !p.rlHalf) { p.rlHalf = true; if (fpSnd) this.audio.reload(1); }
+      if (p.reloadT < 0) { p.ammo[p.weapon] = w.mag; p.rlHalf = false; if (fpSnd) this.audio.reload(1); }
     }
 
     if (w.build) { p.firing = false; this.updateBuild(dt, inp); return; }
@@ -1393,7 +1400,7 @@ export class Game {
     }
     h.nades(p.nades);
     h.aim(p.aiming);
-    h.scope(p.alive && !!w.scope && p.aiming && this.vm.ads > 0.85);
+    h.scope(p.alive && !!w.scope && p.aiming && this.vm.ads > 0.85, w.scope);
     const spread = this.currentSpread();
     const px = Math.tan(spread) * innerHeight / (2 * Math.tan(this.camera.fov * Math.PI / 360));
     this.enemyCheckT -= dt;

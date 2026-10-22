@@ -86,7 +86,15 @@ export class HUD {
   }
   nades(n) { this.set('nades', n, v => $('nadeCount').textContent = '×' + v); }
   aim(on) { this.set('aimOn', on, v => $('btnAim').classList.toggle('on', v)); }
-  scope(on) { this.set('scope', on, v => { $('scope').classList.toggle('show', v); this.cross.style.display = v ? 'none' : ''; }); }
+  scope(on, kind) {
+    this.set('scope', on ? kind : '', v => {
+      const el = $('scope');
+      el.classList.toggle('show', !!v);
+      el.classList.toggle('pgo', v === 'pgo');
+      el.classList.toggle('pso', v === 'pso');
+      this.cross.style.display = v ? 'none' : '';
+    });
+  }
   crosshair(px, enemy) {
     px = Math.round(Math.min(80, Math.max(4, px)));
     this.set('cpx', px, v => {

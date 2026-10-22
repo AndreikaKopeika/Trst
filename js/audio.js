@@ -153,6 +153,26 @@ export class Audio {
     this.noiseBurst(o, t, 0.05, 'bandpass', stage ? 2600 : 1600, 5, 0.9);
     this.tone(o, t, 0.04, stage ? 900 : 500, 300, 'square', 0.15);
   }
+  // звуки перезарядки
+  reloadFx(kind) {
+    if (!this.ok(1)) return;
+    const t = this.ctx.currentTime, o = this.out(0.55, 0.15);
+    switch (kind) {
+      case 'click': this.noiseBurst(o, t, 0.04, 'bandpass', 2400, 6, 0.9); this.tone(o, t, 0.03, 1400, 700, 'square', 0.12); break;
+      case 'slap':
+        this.noiseBurst(o, t, 0.09, 'lowpass', 900, 0.8, 1.4); this.noiseBurst(o, t + 0.01, 0.05, 'bandpass', 3200, 5, 0.8);
+        this.tone(o, t, 0.08, 180, 70, 'triangle', 0.6); break;
+      case 'slam': this.noiseBurst(o, t, 0.14, 'lowpass', 600, 0.7, 1.6); this.noiseBurst(o, t, 0.06, 'bandpass', 2600, 4, 0.9); this.tone(o, t, 0.12, 120, 50, 'triangle', 0.7); break;
+      case 'rack':
+        this.noiseBurst(o, t, 0.05, 'bandpass', 1800, 4, 1.0); this.noiseBurst(o, t + 0.09, 0.06, 'bandpass', 2600, 5, 1.1);
+        this.tone(o, t + 0.09, 0.04, 900, 400, 'square', 0.15); break;
+      case 'shell': this.noiseBurst(o, t, 0.05, 'bandpass', 1500, 5, 0.9); this.tone(o, t + 0.02, 0.05, 600, 300, 'triangle', 0.25); break;
+      case 'cover': this.noiseBurst(o, t, 0.08, 'bandpass', 1200, 3, 0.9); this.tone(o, t, 0.1, 500, 900, 'square', 0.08); break;
+      case 'drop': this.noiseBurst(o, t + 0.35, 0.06, 'bandpass', 2200, 4, 0.5); this.tone(o, t + 0.36, 0.08, 1800, 1500, 'sine', 0.15); break;
+      case 'whoosh': { const f = this.noiseBurst(o, t, 0.35, 'bandpass', 400, 1.2, 0.7); f.frequency.exponentialRampToValueAtTime(2200, t + 0.3); break; }
+      case 'spin': this.tone(o, t, 0.9, 120, 900, 'sawtooth', 0.12); this.noiseBurst(o, t, 0.8, 'bandpass', 3000, 2, 0.25); break;
+    }
+  }
   empty() {
     if (!this.ok(1)) return;
     const t = this.ctx.currentTime, o = this.out(0.4, 0);

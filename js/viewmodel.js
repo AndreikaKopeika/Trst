@@ -4,6 +4,7 @@ import * as THREE from './lib/three.module.min.js';
 import { WEAPONS } from './weapons.js';
 import { TEAM_COLORS } from './chicken.js';
 import { BLOCKS, tileUV } from './blocks.js';
+import { RELOADS, sample } from './reloads.js';
 
 const rnd = (a, b) => a + Math.random() * (b - a);
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
@@ -191,7 +192,11 @@ function buildAK(M) {
 function buildPKM(M) {
   const g = new THREE.Group(), P = {};
   B(g, M.metal, 0.06, 0.08, 0.36, 0, 0.012, -0.08);
-  B(g, M.worn, 0.064, 0.022, 0.24, 0, 0.062, -0.06);                 // крышка ствольной коробки
+  P.cover = sub(g, 0, 0.062, -0.18);                                  // крышка ствольной коробки (шарнир спереди)
+  B(P.cover, M.worn, 0.064, 0.022, 0.24, 0, 0, 0.12);
+  B(P.cover, M.metal, 0.02, 0.01, 0.03, 0, 0.012, 0.22);
+  P.bolt = sub(g);
+  B(P.bolt, M.worn, 0.014, 0.022, 0.035, 0.036, -0.004, -0.1);
   B(g, M.metal, 0.03, 0.03, 0.03, 0, 0.08, -0.18);                   // прицел
   B(g, M.blued, 0.01, 0.025, 0.012, 0, 0.1, -0.18);
   C(g, M.blued, 0.014, 0.62, 0, 0.018, -0.57, 14);
@@ -222,7 +227,7 @@ function buildPKM(M) {
     C(P.belt, M.brass, 0.006, 0.05, -0.035 + t * 0.03, -0.055 + t * 0.06, -0.02 + Math.sin(t * 3) * 0.01, 8, 0, Math.PI / 2);
     B(P.belt, M.blued, 0.05, 0.004, 0.012, -0.035 + t * 0.03, -0.055 + t * 0.06, -0.02 + Math.sin(t * 3) * 0.01);
   }
-  return { g, P, muzzle: [0, 0.018, -0.97], eject: [0.035, 0.0, -0.04], sight: 0.1, hip: [0.125, -0.145, -0.36], ads: [0, -0.1, -0.38], rh: [0, -0.06, 0.065], lh: [0, -0.05, -0.3], shell: 1, kick: 1.15 };
+  return { g, P, muzzle: [0, 0.018, -0.97], eject: [0.035, 0.0, -0.04], sight: 0.1, hip: [0.125, -0.145, -0.36], ads: [0, -0.1, -0.38], present: [-0.05, 0.05, -0.05, 0.1, 0.25], rh: [0, -0.06, 0.065], lh: [0, -0.05, -0.3], shell: 1, kick: 1.15 };
 }
 
 function buildSVD(M) {
@@ -276,7 +281,10 @@ function buildMinigun(M) {
     const t = i / 6;
     B(g, M.oliveDark, 0.05, 0.04, 0.05, -0.07 - t * 0.06, -0.03 - t * 0.12, 0.04 + t * 0.03, 0, 0, 0.3 + t * 0.6);
   }
-  B(g, M.olive, 0.14, 0.12, 0.16, -0.13, -0.22, 0.06);
+  P.mag = sub(g, -0.13, -0.22, 0.06);
+  B(P.mag, M.olive, 0.14, 0.12, 0.16, 0, 0, 0);
+  B(P.mag, M.oliveDark, 0.144, 0.02, 0.164, 0, 0.06, 0);
+  B(P.mag, M.metal, 0.05, 0.012, 0.02, 0, 0.072, 0);
   // вращающийся блок стволов
   P.spin = sub(g, 0, 0, -0.14);
   for (let i = 0; i < 6; i++) {
@@ -287,7 +295,7 @@ function buildMinigun(M) {
   C(P.spin, M.metal, 0.05, 0.02, 0, 0, -0.32, 16);
   C(P.spin, M.metal, 0.05, 0.03, 0, 0, -0.58, 16);
   C(P.spin, M.poly, 0.02, 0.6, 0, 0, -0.3, 10);
-  return { g, P, muzzle: [0, 0, -0.76], eject: [0.0, -0.06, -0.12], sight: 0.12, hip: [0.14, -0.165, -0.42], ads: [0.06, -0.13, -0.4], rh: [0, -0.1, 0.085], lh: [0, -0.08, -0.12], shell: 1.2, kick: 0.8, ejectDown: true };
+  return { g, P, muzzle: [0, 0, -0.76], eject: [0.0, -0.06, -0.12], sight: 0.12, hip: [0.14, -0.165, -0.42], ads: [0.06, -0.13, -0.4], present: [-0.05, 0.08, 0.0, 0.1, 0.1], rh: [0, -0.1, 0.085], lh: [0, -0.08, -0.12], shell: 1.2, kick: 0.8, ejectDown: true };
 }
 
 function buildShotgun(M) {
@@ -332,7 +340,7 @@ function buildRPG(M) {
   cone(P.warhead, M.olive, 0.042, 0.012, 0.17, 0, 0, -0.22, 16);
   C(P.warhead, M.metal, 0.008, 0.05, 0, 0, -0.32, 8);
   C(P.warhead, M.metal, 0.022, 0.03, 0, 0, 0.0, 12);
-  return { g, P, muzzle: [0, 0, -0.98], eject: null, sight: 0.065, hip: [0.17, -0.085, -0.22], ads: [0.07, -0.05, -0.18], rh: [0, -0.07, -0.08], lh: [0, -0.07, 0.1], shell: 0, kick: 2.2 };
+  return { g, P, muzzle: [0, 0, -0.98], eject: null, sight: 0.065, hip: [0.17, -0.085, -0.22], ads: [0.07, -0.05, -0.18], present: [-0.03, 0.02, 0.02, 0.05, 0.1], rh: [0, -0.07, -0.08], lh: [0, -0.07, 0.1], shell: 0, kick: 2.2 };
 }
 
 function buildBlockTool(M, atlas) {
@@ -420,11 +428,26 @@ export class ViewModel {
       G.muzzleObj = marker(G.g, ...G.muzzle);
       G.ejectObj = G.eject ? marker(G.g, ...G.eject) : null;
       G.rhObj = buildHand(this.M, G.g, G.rh);
-      if (G.lh) G.lhObj = buildHand(this.M, G.lhPart ? G.P[G.lhPart] : G.g, G.lh);
+      if (G.lh) { G.lhObj = buildHand(this.M, G.lhPart ? G.P[G.lhPart] : G.g, G.lh); G.lhBase = G.lhObj.position.clone(); }
+      G.reload = RELOADS[w.key] || null;
+      if (w.key === 'shotgun') {
+        G.carry = new THREE.Group();
+        C(G.carry, this.M.red, 0.0095, 0.05, 0, 0.0, -0.02, 10);
+        C(G.carry, this.M.brass, 0.01, 0.014, 0, 0.0, 0.01, 10);
+        G.carry.position.set(0, -0.03, -0.01); G.carry.visible = false;
+        G.lhObj.add(G.carry);
+      }
       G.g.visible = false;
       this.holder.add(G.g);
       return G;
     });
+    this.dropped = [];
+    this.feathers = [];
+    const fGeo = new THREE.PlaneGeometry(0.018, 0.045);
+    const fMat = new THREE.MeshStandardMaterial({ color: 0xf6f2ea, roughness: 0.9, side: THREE.DoubleSide });
+    for (let i = 0; i < 30; i++) { const m = new THREE.Mesh(fGeo, fMat); m.visible = false; this.scene.add(m); this.feathers.push({ m, life: 0, v: new THREE.Vector3(), rv: new THREE.Vector3() }); }
+    this.rlLast = -1; this.rlW = -1; this.onEvent = null;
+    this._t1 = new THREE.Vector3(); this._t2 = new THREE.Vector3();
     this.wings = [buildWing(this.M, 1), buildWing(this.M, -1)];
     for (const w of this.wings) this.scene.add(w.arm);
 
@@ -499,6 +522,35 @@ export class ViewModel {
     s.life = 0.9; s.scale = G.shell; s.color = w.key === 'shotgun' ? new THREE.Color(0xc0281c) : new THREE.Color(0xd4a843);
   }
 
+  // События перезарядки: сброс магазина, перья, звуки (звуки и тряску делает игра через onEvent)
+  event(name, G) {
+    if (name === 'drop') {
+      const src = G.P.mag;
+      if (src) {
+        src.updateMatrixWorld(true);
+        const obj = src.clone(true);
+        src.matrixWorld.decompose(obj.position, obj.quaternion, obj.scale);
+        this.scene.add(obj);
+        this.dropped.push({ obj, life: 1.3, v: new THREE.Vector3(rnd(-0.15, 0.05), rnd(0.1, 0.3), rnd(0.05, 0.2)), w: new THREE.Vector3(rnd(-6, 6), 0, rnd(-6, 6)) });
+      }
+      this.puff(G);
+    } else if (name === 'puff') this.puff(G);
+    else if (name === 'slap' || name === 'slam') { this.rec.vz += 0.9; this.rec.vrx -= 5; this.puff(G, 3); }
+    else if (name === 'spin') this.spinV = 55;
+    if (this.onEvent) this.onEvent(name);
+  }
+  puff(G, n = 6) {
+    const h = G.lhObj || G.rhObj;
+    const p = h.getWorldPosition(this._v);
+    let k = 0;
+    for (const f of this.feathers) {
+      if (f.life > 0) continue;
+      f.life = rnd(0.7, 1.2); f.m.visible = true; f.m.position.copy(p);
+      f.v.set(rnd(-0.6, 0.6), rnd(0.1, 0.7), rnd(-0.3, 0.3)); f.rv.set(rnd(-8, 8), rnd(-8, 8), rnd(-8, 8));
+      if (++k >= n) break;
+    }
+  }
+
   // Положение дула в мире (для трассеров из глаз)
   muzzleWorld(mainCam, out) {
     const G = this.guns[this.cur];
@@ -546,65 +598,105 @@ export class ViewModel {
     r.vry += (-k * r.ry - c * r.vry) * dt; r.ry += r.vry * dt;
     r.vrz += (-k * r.rz - c * r.vrz) * dt; r.rz += r.vrz * dt;
 
-    // перезарядка
-    let rlY = 0, rlRz = 0, rlRx = 0;
+    // перезарядка по ключевым кадрам
     const rp = s.reload;
-    if (rp >= 0) {
-      const inout = rp < 0.15 ? ease(rp / 0.15) : rp > 0.85 ? ease((1 - rp) / 0.15) : 1;
-      rlY = -0.05 * inout; rlRz = 0.55 * inout; rlRx = 0.25 * inout;
-      if (w.key === 'rpg') { rlRz = -0.2 * inout; rlRx = -0.35 * inout; rlY = -0.1 * inout; }
-      if (w.key === 'shotgun') { rlRz = 0.3 * inout; }
-    }
-    if (G.P.mag) {
-      const base = G.base.mag;
-      let off = 0, vis = true;
-      if (rp >= 0) {
-        if (rp > 0.15 && rp < 0.45) off = ease((rp - 0.15) / 0.3);
-        else if (rp >= 0.45 && rp < 0.55) { off = 1; vis = rp > 0.5; }
-        else if (rp >= 0.55 && rp < 0.8) off = 1 - ease((rp - 0.55) / 0.25);
+    const RL = G.reload && rp >= 0 ? G.reload : null;
+    let gx = 0, gy = 0, gz = 0, grx = 0, gry = 0, grz = 0;
+    if (RL) {
+      if (this.rlLast < 0 || this.rlW !== wi || rp < this.rlLast - 0.3) { this.rlLast = 0; this.rlW = wi; }
+      for (const [t, e] of RL.ev) if (t > this.rlLast && t <= rp) this.event(e, G);
+      this.rlLast = rp;
+      const gv = sample(RL.keys, 'g', rp);
+      if (gv) {
+        const g6 = gv.a ? gv.a.map((v, i) => v + (gv.b[i] - v) * gv.u) : gv;
+        [gx, gy, gz, grx, gry, grz] = g6;
       }
-      G.P.mag.position.set(base.x - off * 0.03, base.y - off * 0.25, base.z + off * 0.05);
-      G.P.mag.rotation.x = off * 0.4;
-      G.P.mag.visible = vis;
-      if (G.P.belt) G.P.belt.visible = !(rp > 0.2 && rp < 0.75);
-    }
-    if (G.P.warhead) {
-      if (rp >= 0 && rp > 0.5) this.warheadOn = true;
-      const inn = rp >= 0.5 && rp < 0.8 ? 1 - ease((rp - 0.5) / 0.3) : 0;
-      G.P.warhead.visible = this.warheadOn;
-      G.P.warhead.position.z = G.base.warhead.z - inn * 0.25;
-    }
-    // детали
+      // подача: на время перезарядки оружие поднимается к центру кадра
+      const pw = rp < 0.12 ? ease(rp / 0.12) : rp > 0.9 ? ease((1 - rp) / 0.1) : 1;
+      const pr = G.present || [-0.06, 0.075, 0.03, 0.12, 0.28];
+      gx += pr[0] * pw; gy += pr[1] * pw; gz += pr[2] * pw; grx += pr[3] * pw; gry += pr[4] * pw;
+      if (rp > 0.6) this.warheadOn = true;
+    } else this.rlLast = -1;
     this.pump = Math.max(0, this.pump - dt * 2.6);
-    if (G.P.pump) {
-      const ph = this.pump > 0 ? Math.sin((1 - this.pump) * Math.PI) : 0;
-      const rpp = rp >= 0 ? Math.max(0, Math.sin(rp * Math.PI * 6)) * 0.5 : 0;
-      G.P.pump.position.z = G.base.pump.z + (ph + rpp) * 0.08;
-    }
     this.bolt = Math.max(0, this.bolt - dt * 14);
-    if (G.P.bolt) G.P.bolt.position.z = G.base.bolt.z + Math.sin(this.bolt * Math.PI) * 0.06;
     if (G.P.spin) {
-      this.spinV += ((s.spin > 0 ? 45 * s.spin : 0) - this.spinV) * Math.min(1, dt * 5);
+      this.spinV += ((s.spin > 0 ? 45 * s.spin : 0) - this.spinV) * Math.min(1, dt * (RL ? 0.8 : 5));
       G.P.spin.rotation.z += this.spinV * dt;
     }
-    if (G.P.belt) G.P.belt.position.y = G.base.belt.y + (s.firing ? Math.sin(this.t * 60) * 0.003 : 0);
     this.swing = Math.max(0, this.swing - dt * 5);
 
     // итоговая поза
     const hip = G.hip, ads = G.ads;
     const sw = this.switchT < 1 ? (1 - ease(this.switchT)) : 0;
     const px = hip[0] + (ads[0] - hip[0]) * A + (bx + this.sway.x) * free;
-    const py = hip[1] + (ads[1] - hip[1]) * A + (by + idle + this.sway.y - this.landT * 0.03 + air) * free + rlY - sw * 0.25;
+    const py = hip[1] + (ads[1] - hip[1]) * A + (by + idle + this.sway.y - this.landT * 0.03 + air) * free - sw * 0.25;
     const pz = hip[2] + (ads[2] - hip[2]) * A + r.z * 0.06;
-    this.holder.position.set(px, py, pz);
+    this.holder.position.set(px + gx, py + gy, pz + gz);
     this.holder.rotation.set(
-      r.rx * 0.05 + rlRx + this.sway.y * 1.2 * free - this.swing * 0.6 - sw * 0.6,
-      r.ry * 0.03 + this.sway.x * 1.5 * free + (1 - A) * 0.04,
-      r.rz * 0.02 + rlRz - this.sway.x * 2 * free + bx * 1.5,
+      r.rx * 0.05 + grx + this.sway.y * 1.2 * free - this.swing * 0.6 - sw * 0.6,
+      r.ry * 0.03 + gry + this.sway.x * 1.5 * free + (1 - A) * 0.04,
+      r.rz * 0.02 + grz - this.sway.x * 2 * free + bx * 1.5,
     );
+    this.scene.updateMatrixWorld(true);
+
+    // детали оружия и левое крыло
+    const P = G.P;
+    if (RL) {
+      const lv = sample(RL.keys, 'lh', rp);
+      const toCam = (a, out) => { out.set(a[0], a[1], a[2]); return a[3] === 1 ? out : G.g.localToWorld(out); };
+      const target = lv.a ? toCam(lv.a, this._t1).lerp(toCam(lv.b, this._t2), lv.u) : toCam(lv, this._t1);
+      const hl = G.g.worldToLocal(this._t2.copy(target));
+      if (G.lhObj) G.lhObj.position.copy(G.lhObj.parent.worldToLocal(target.clone()));
+      const hold = RL.hold;
+      if (P.mag) {
+        const mm = sample(RL.keys, 'mag', rp) || 'gun';
+        P.mag.visible = mm !== 'none';
+        if (mm === 'hand') { P.mag.position.set(hl.x + hold[0], hl.y + hold[1], hl.z + hold[2]); P.mag.rotation.set(0.15, 0, 0); }
+        else { P.mag.position.copy(G.base.mag); P.mag.rotation.set(0, 0, 0); }
+      }
+      if (P.warhead) {
+        const wm = sample(RL.keys, 'wh', rp) || 'gun';
+        P.warhead.visible = wm !== 'none';
+        if (wm === 'hand') P.warhead.position.set(hl.x + hold[0], hl.y + hold[1], hl.z + hold[2]);
+        else P.warhead.position.copy(G.base.warhead);
+      }
+      if (G.carry) G.carry.visible = (sample(RL.keys, 'carry', rp) || 0) > 0.5;
+      if (P.bolt) P.bolt.position.z = G.base.bolt.z + (sample(RL.keys, 'bolt', rp) || 0) * 0.06;
+      if (P.pump) P.pump.position.z = G.base.pump.z + (sample(RL.keys, 'pump', rp) || 0) * 0.08;
+      if (P.cover) P.cover.rotation.x = sample(RL.keys, 'cover', rp) || 0;
+      if (P.belt) P.belt.visible = (sample(RL.keys, 'belt', rp) ?? 1) > 0.5;
+    } else {
+      if (G.lhObj) G.lhObj.position.copy(G.lhBase);
+      if (P.mag) { P.mag.position.copy(G.base.mag); P.mag.rotation.set(0, 0, 0); P.mag.visible = true; }
+      if (P.warhead) { P.warhead.visible = this.warheadOn; P.warhead.position.copy(G.base.warhead); }
+      if (G.carry) G.carry.visible = false;
+      if (P.cover) P.cover.rotation.x = 0;
+      if (P.belt) P.belt.visible = true;
+      if (P.pump) P.pump.position.z = G.base.pump.z + (this.pump > 0 ? Math.sin((1 - this.pump) * Math.PI) : 0) * 0.08;
+      if (P.bolt) P.bolt.position.z = G.base.bolt.z + Math.sin(this.bolt * Math.PI) * 0.06;
+    }
+    if (P.belt) P.belt.position.y = G.base.belt.y + (s.firing ? Math.sin(this.t * 60) * 0.003 : 0);
+
+    // выброшенные магазины и перья
+    for (let i = 0; i < this.dropped.length; i++) {
+      const d = this.dropped[i];
+      d.life -= dt;
+      if (d.life <= 0) { this.scene.remove(d.obj); this.dropped.splice(i, 1); i--; continue; }
+      d.v.y -= 3.2 * dt;
+      d.obj.position.addScaledVector(d.v, dt);
+      d.obj.rotation.x += d.w.x * dt; d.obj.rotation.z += d.w.z * dt;
+    }
+    for (const f of this.feathers) {
+      if (f.life <= 0) continue;
+      f.life -= dt;
+      if (f.life <= 0) { f.m.visible = false; continue; }
+      f.v.multiplyScalar(1 - dt * 3); f.v.y -= 0.25 * dt;
+      f.m.position.addScaledVector(f.v, dt);
+      f.m.rotation.x += f.rv.x * dt; f.m.rotation.y += f.rv.y * dt; f.m.rotation.z += f.rv.z * dt;
+      f.m.scale.setScalar(Math.min(1, f.life * 2));
+    }
 
     // крылья тянутся от "плеч" к кистям
-    this.scene.updateMatrixWorld(true);
     const shoulders = [new THREE.Vector3(0.3, -0.42, 0.12), new THREE.Vector3(-0.28, -0.46, 0.05)];
     const hands = [G.rhObj, G.lhObj];
     this.wings.forEach((wg, i) => {
