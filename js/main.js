@@ -110,12 +110,12 @@ input.onSeen = (what) => {
 input.onLockChange = (locked) => {
   updateLockHint();
   // вышли из захвата мыши (Esc) во время игры — пауза
-  if (!locked && game && game.ready && !paused && input.needLock && document.body.classList.contains('playing')) setPause(true);
+  if (!locked && game && game.ready && !paused && input.needLock && document.body.classList.contains('playing') && !(game.campaign && game.campaign.cursor)) setPause(true);
 };
 input.setPref(settings.inputMode);
 applyInputUI();
 function updateLockHint() {
-  const show = input.needLock && !input.locked && !!game && !paused && document.body.classList.contains('playing');
+  const show = input.needLock && !input.locked && !!game && !paused && document.body.classList.contains('playing') && !(game.campaign && game.campaign.cursor);
   $('lockHint').classList.toggle('hidden', !show);
 }
 
@@ -170,7 +170,7 @@ function enterPlay() {
   document.body.classList.add('playing');
   input.active = true;
   input.reset();
-  if (input.needLock) input.lock();
+  if (input.needLock && !(game && game.campaign && game.campaign.startStage === 0)) input.lock(); // в кампании мышь захватим после брифинга
   updateLockHint();
   $('btnFire2').classList.toggle('hidden', !settings.leftFire);
   if (game && game.code) { $('pauseRoom').textContent = 'Код комнаты: ' + game.code; }
@@ -600,7 +600,7 @@ async function startMission(i, stage) {
   const C = new Campaign({
     mission: MISSIONS[i], index: i, diff: camp.diff, voice: camp.voice, stage, audio, music, sfx, hasNext: i < MISSIONS.length - 1,
     onResult: (r) => onMissionResult(i, r),
-    onGo: unlockVoice,
+    onGo: () => { unlockVoice(); if (input.needLock && !paused) input.lock(); updateLockHint(); },
   });
   game.startCampaign(C, n);
   applySize();
@@ -615,6 +615,13 @@ async function onMissionResult(i, r) {
   openCampMenu();
 }
 $('skipCine').addEventListener('click', () => { if (game && game.campaign) game.campaign.skip(); });
+// клавиатура в кампании: Enter/пробел — «НАЧАТЬ» на брифинге и пропуск ролика
+window.addEventListener('keydown', (e) => {
+  const C = game && game.campaign;
+  if (!C || paused || (e.code !== 'Enter' && e.code !== 'Space' && e.code !== 'NumpadEnter')) return;
+  if (!$('brief').classList.contains('hidden')) { e.preventDefault(); if (C.brGo) $('brGo').click(); else if (C.briefSkip) C.briefSkip(); return; }
+  if (C.cineOn && !$('skipCine').classList.contains('hidden')) { e.preventDefault(); C.skip(); }
+});
 
 // ---------- цикл ----------
 window.addEventListener('resize', applySize);

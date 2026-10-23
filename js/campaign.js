@@ -113,6 +113,9 @@ export class Campaign {
     $('brMeta').textContent = B.meta.join('\n');
     $('brCoord').textContent = B.coord || `${(51 + this.mi * 1.37).toFixed(4)}° С.Ш.\n${(39 + this.mi * 2.11).toFixed(4)}° В.Д.\nСПУТНИК «КЛЮВ-3»`;
     this.locked = true;
+    // на ПК курсор должен быть свободен, чтобы нажать «НАЧАТЬ»
+    this.cursor = true;
+    if (document.pointerLockElement) document.exitPointerLock();
     const cam = g.camera, far0 = cam.far, fog0 = this.fog;
     cam.far = 1500; cam.updateProjectionMatrix(); this.fog = [600, 1400];
     const c = B.view || [SX / 2, 0, SZ / 2];
@@ -123,6 +126,7 @@ export class Campaign {
     const full = B.text.join('\n\n');
     let skip = false;
     const tapSkip = () => { skip = true; };
+    this.briefSkip = tapSkip;
     el.addEventListener('pointerdown', tapSkip);
     for (let k = 0; k <= full.length && !this.dead; k++) {
       if (skip) k = full.length;
@@ -133,6 +137,8 @@ export class Campaign {
     el.removeEventListener('pointerdown', tapSkip);
     $('brGo').classList.remove('hidden');
     await new Promise(r => { $('brGo').onclick = r; this.brGo = r; });
+    this.brGo = null;
+    this.cursor = false;
     this.o.onGo && this.o.onGo();
     this.sfx.boom();
     await this.fade('black', 0.5);
@@ -700,7 +706,7 @@ export class Campaign {
     this.dead = true;
     this.stopAll();
     this.music.play('dread');
-    this.locked = true;
+    this.locked = true; this.cursor = true;
     this.setCine(false);
     const el = $('mres');
     el.className = 'fail';
@@ -714,7 +720,7 @@ export class Campaign {
     if (this.dead) return;
     this.dead = true;
     this.stopAll();
-    this.locked = true;
+    this.locked = true; this.cursor = true;
     const s = this.stats, t = Math.round(this.t - s.t0);
     const acc = s.shots ? Math.round(s.hits / s.shots * 100) : 0;
     const next = this.o.hasNext;
