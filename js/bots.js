@@ -3,7 +3,7 @@
 //  инженер (укрепляет своё яйцо, ставит стены, чинит), снайпер (строит вышку и стреляет издалека),
 //  сапёр (подкладывает ТНТ к стенам и яйцу, отходит и подрывает), охранник (без стройки).
 // Все умеют строить мосты/столбы по карте путей, ставить укрытия в перестрелке, отступать раненными.
-import { WEAPONS, W } from './weapons.js';
+import { WEAPONS, W, EXPLOSIONS } from './weapons.js';
 import { teamWool, BLOCKS, B } from './blocks.js';
 import { SX, SY, SZ } from './world.js';
 
@@ -356,10 +356,10 @@ function roleMove(g, b, c, ts, dt) {
       const d = Math.hypot(t.x + 0.5 - b.pos.x, t.z + 0.5 - b.pos.z);
       t.t += dt;
       if (t.state === 'back') {
-        if (d < 8.5 && t.t < 4) { if (!followNav(g, b, c, b.team)) { c.gx = b.pos.x * 2 - t.x; c.gz = b.pos.z * 2 - t.z; } return; }
+        if (d < TNT_SAFE && t.t < 9) { if (!followNav(g, b, c, b.team)) { c.gx = b.pos.x * 2 - t.x; c.gz = b.pos.z * 2 - t.z; } return; }
         t.state = 'shoot'; t.t = 0;
       }
-      if (t.t > 5) { ai.tnt = null; ai.tntCool = rnd(3, 6); }
+      if (t.t > 7) { ai.tnt = null; ai.tntCool = rnd(3, 6); }
       else {
         c.aim = { x: t.x + 0.5, y: t.y + 0.5, z: t.z + 0.5 }; c.shoot = true; c.precise = true;
         if (t.t > 1.5 && !seesBlock(g, b, t.x, t.y, t.z)) { ai.sideT = 0.6; ai.side = Math.random() < 0.5 ? -1 : 1; t.t = 0.2; }
@@ -501,7 +501,7 @@ function roleMove(g, b, c, ts, dt) {
     if (ai.wp < ai.route.length - 1 && Math.hypot(wp[0] - b.pos.x, wp[1] - b.pos.z) < 3) ai.wp++;
   }
   // сапёр: ТНТ к стене на пути или к яйцу
-  if (job === 'sapper' && build && !ai.tnt && ai.tntCool <= 0 && b.res >= 6 && b.onGround) {
+  if (job === 'sapper' && build && !ai.tnt && ai.tntCool <= 0 && b.res >= TNT_COST && b.onGround) {
     let spot = null;
     if (enEgg && enEgg.hp > 0 && Math.hypot(enEgg.pos.x - b.pos.x, enEgg.pos.z - b.pos.z) < 6.5) {
       spot = tntSpot(g, b, EGG_TNT.map(([dx, dy, dz]) => [Math.floor(enEgg.pos.x) + dx, Math.floor(enEgg.pos.y + 0.01) + dy, Math.floor(enEgg.pos.z) + dz]));
@@ -518,6 +518,8 @@ function roleMove(g, b, c, ts, dt) {
   }
 }
 // клетки вокруг яйца для ТНТ — ближние первыми
+// ТНТ теперь гигантский: сапёр отбегает подальше, прежде чем стрелять в него
+const TNT_COST = BLOCKS[B.TNT].cost, TNT_SAFE = EXPLOSIONS.tnt.radius * 1.1;
 const EGG_TNT = [];
 for (let dy = 0; dy <= 1; dy++) for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) if (dx || dz) EGG_TNT.push([dx, dy, dz]);
 EGG_TNT.sort((a, b) => Math.hypot(a[0], a[2]) + a[1] * 0.5 - Math.hypot(b[0], b[2]) - b[1] * 0.5);
@@ -637,7 +639,7 @@ export function updateBot(g, b, dt) {
     c.aim = { x: egg.pos.x, y: egg.pos.y + (ai.eggY || 0.6), z: egg.pos.z };
     c.shoot = true;
     if (Math.hypot(egg.pos.x - b.pos.x, egg.pos.z - b.pos.z) < (w.key === 'shotgun' ? 4 : ai.job === 'sapper' ? 2.5 : 10)) {
-      if (ai.job !== 'sapper' || ai.tntCool > 0 || b.res < 6) { c.gx = null; strafe = ai.strafe * 0.5; }
+      if (ai.job !== 'sapper' || ai.tntCool > 0 || b.res < TNT_COST) { c.gx = null; strafe = ai.strafe * 0.5; }
     }
   } else if (ai.coverUntil > now && now - (ai.lastSeen ? ai.lastSeen.t : -99) > 2) ai.coverUntil = 0;
   if (ai.retreatUntil > now) {

@@ -5,6 +5,8 @@ import { Mesher } from './mesher.js';
 import { BLOCKS, B, BUILDABLE, buildAtlas, teamWool, matOf } from './blocks.js';
 import { ChickenModel, TEAM_COLORS } from './chicken.js';
 import { FX } from './fx.js';
+import { Fire } from './fire.js';
+import { Support } from './support.js';
 import { WEAPONS, W, EXPLOSIONS, MAX_HP, EGG_HP, RESPAWN_TIME, START_RES, MINE_DMG } from './weapons.js';
 import { updateBot, BOT_NAMES, BOT_WEAPONS } from './bots.js';
 import { esc } from './hud.js';
@@ -99,6 +101,8 @@ export class Game {
     this.mesher = new Mesher(this.world, scene, atlas.texture);
     this.world.onChange = (x, y, z) => { this.mesher.markBlock(x, y, z); if (this.nav) this.nav.markDirty(); };
     this.fx = new FX(scene, this.world, preset(this.settings.quality).fx);
+    this.fire = new Fire(this);
+    this.support = new Support(this);
     this.vm = new ViewModel(this.renderer, atlas.texture);
     this.vm.onEvent = (e) => {
       if (e === 'puff') return;
@@ -334,6 +338,7 @@ export class Game {
     this.applyEnvironment(this.world.info);
     this.mesher.rebuildAll();
     this.fx.clear();
+    if (this.fire) { this.fire.clear(); this.support.clear(); }
     for (const e of this.eggs) this.scene.remove(e.mesh);
     this.eggs = this.world.info.eggs.map(e => this.makeEgg(e));
     if (this.isHost) { this.nav = new Nav(this.world); this.nav.setGoals(this.eggs); }
@@ -513,7 +518,7 @@ export class Game {
       }
       const h = this.trace(ox, oy, oz, _dir.x, _dir.y, _dir.z, w.range, shooter.id, w.pierceSoft);
       let kind = 0, nx = 0, ny = 0, nz = 0, ric = 0;
-      const fall = w.key === 'shotgun' ? Math.max(0.25, 1 - h.t / 28) : 1;
+      const fall = w.key === 'shotgun' ? Math.max(0.3, 1 - h.t / 42) : 1;
       if (h.kind === 'block') {
         kind = h.block.id; nx = h.block.nx; ny = h.block.ny; nz = h.block.nz;
         const def = BLOCKS[h.block.id];
@@ -1119,12 +1124,31 @@ export class Game {
     }
   }
 
+  // упаковка изменений блоков: разрушения отдельно, компактно
+  packBlk(L) {
+    if (L.length < 200) return { t: 'blk', l: L };
+    const l = [], idx = [];
+    for (let i = 0; i < L.length; i += 5) {
+      if (L[i + 3] === 0) idx.push(this.world.idx(L[i], L[i + 1], L[i + 2]));
+      else l.push(L[i], L[i + 1], L[i + 2], L[i + 3], L[i + 4]);
+    }
+    // блок мог сначала сломаться, а потом появиться снова — такие оставляем в общем списке по порядку
+    if (l.length) { const placed = new Set(); for (let i = 0; i < l.length; i += 5) placed.add(this.world.idx(l[i], l[i + 1], l[i + 2])); if (idx.some(k => placed.has(k))) return { t: 'blk', l: L }; }
+    idx.sort((a, b) => a - b);
+    const r = []; let last = 0;
+    for (const k of idx) { if (k !== last || !r.length) r.push(k - last); last = k; }
+    return { t: 'blk', l, r };
+  }
+
   hostSetBlock(x, y, z, id, dmg) {
     const prev = this.world.get(x, y, z);
     this.world.set(x, y, z, id, dmg);
     this.pendingBlk.push(x, y, z, id, dmg);
     this.onBlockChange(x, y, z, prev, id);
+    if (prev && !id) this.support.removed(x, y, z);
   }
+  // висящий в воздухе блок рушится
+  hostCollapse(x, y, z) { if (this.world.get(x, y, z)) this.hostSetBlock(x, y, z, 0, 0); }
 
   hostPlace(p, x, y, z, b, cid) {
     const def = BLOCKS[b];
@@ -1159,7 +1183,7 @@ export class Game {
       const dmg = E.power * (1 - d / R) * (def.tough ?? 1) * (0.85 + Math.random() * 0.3);
       this.hostBlockDamage(w.idx(bx, by, bz), dmg, ownerId);
     }
-    const PR = R * 1.6;
+    const PR = R * (E.pr || 1.6);
     for (const p of this.players.values()) {
       if (!p.alive) continue;
       const d = Math.hypot(p.pos.x - x, p.pos.y + 0.7 - y, p.pos.z - z);
@@ -1176,8 +1200,10 @@ export class Game {
     for (const e of this.eggs) {
       if (owner && owner.team === e.team) continue;
       const d = Math.hypot(e.pos.x - x, e.pos.y + 0.6 - y, e.pos.z - z);
-      if (d < R + 1.2) this.hostEggDamage(e, E.dmg * 1.5 * (1 - d / (R + 1.2)), ownerId);
+      const [ed, er] = E.egg;
+      if (d < er) this.hostEggDamage(e, ed * (1 - d / er), ownerId);
     }
+    this.fire.fromExplosion(x, y, z, R, E.fire, ownerId);
   }
 
   botFire(b, wi, extraSpread) {
@@ -1241,7 +1267,10 @@ export class Game {
       for (const p of this.players.values()) { p.alive = false; p.respawnAt = this.now + 1; }
     }
     // блоки
-    if (this.pendingBlk.length) { this.broadcast({ t: 'blk', l: this.pendingBlk }); this.pendingBlk = []; }
+    this.fire.hostTick(dt);
+    this.support.hostTick();
+    if (this.pendingBlk.length) { this.broadcast(this.packBlk(this.pendingBlk)); this.pendingBlk = []; }
+    const fm = this.fire.pack(); if (fm) this.broadcast(fm);
     // снимок
     this.netT -= dt;
     if (this.netT <= 0) {
@@ -1291,12 +1320,25 @@ export class Game {
       case 'roster': this.onRoster(m); break;
       case 'gone': { const p = this.players.get(m.id); if (p && !p.isLocal) { p.alive = false; p.model.root.visible = false; p.hist = []; } break; }
       case 'snap': this.onSnap(m); break;
+      case 'fire': this.fire.apply(m); break;
       case 'blk': {
         const l = m.l;
         for (let i = 0; i < l.length; i += 5) {
           const prev = this.world.get(l[i], l[i + 1], l[i + 2]);
           this.world.set(l[i], l[i + 1], l[i + 2], l[i + 3], l[i + 4]);
           this.onBlockChange(l[i], l[i + 1], l[i + 2], prev, l[i + 3]);
+        }
+        // сломанные блоки — отсортированные индексы разностями (после большого взрыва их тысячи)
+        if (m.r) {
+          let k = 0;
+          for (const d of m.r) {
+            k += d;
+            const x = k % SX, z = Math.floor(k / SX) % SZ, y = Math.floor(k / (SX * SZ));
+            const prev = this.world.get(x, y, z);
+            if (!prev) continue;
+            this.world.set(x, y, z, 0, 0);
+            this.onBlockChange(x, y, z, prev, 0);
+          }
         }
         break;
       }
@@ -1426,7 +1468,7 @@ export class Game {
       this.fx.flashes.add(at, 1.2, 0.15, 0xffffff, 1.5);
       this.audio.cluck(0.8, at, 0.9 + Math.random() * 0.3);
     }
-    const wn = typeof m.w === 'number' ? WEAPONS[m.w].short : m.w === 'tnt' ? 'ТНТ' : m.w === 'nade' ? 'ГРАНАТА' : '💥';
+    const wn = typeof m.w === 'number' ? WEAPONS[m.w].short : m.w === 'tnt' ? 'ТНТ' : m.w === 'nade' ? 'ГРАНАТА' : m.w === 'fire' ? '🔥 ОГОНЬ' : '💥';
     const cls = (p) => p ? (p.team === 0 ? 'r' : 'b') : '';
     const mine = m.k === this.myId || m.v === this.myId;
     if (k && k !== v) this.hud.feed(`<span class="${cls(k)}">${esc(k.name)}</span><span class="w">${m.h ? '🎯' : ''}${wn}</span><span class="${cls(v)}">${esc(v ? v.name : '?')}</span>`, mine);
@@ -1453,7 +1495,7 @@ export class Game {
     const me = this.me;
     if (me && me.alive) {
       const dd = Math.hypot(me.pos.x - p.x, me.pos.y + 0.7 - p.y, me.pos.z - p.z);
-      const PR = E.radius * 1.6;
+      const PR = E.radius * (E.pr || 1.6);
       if (dd < PR) {
         const k = E.push * (1 - dd / PR) / Math.max(0.5, dd);
         me.vel.x += (me.pos.x - p.x) * k; me.vel.z += (me.pos.z - p.z) * k;
@@ -1468,7 +1510,7 @@ export class Game {
       // при взрыве ломаются десятки блоков: полные обломки и звук — только у первых в кадре
       const n = this.breaksThisFrame = (this.breakFrame === this.frameNo ? this.breaksThisFrame : 0) + 1;
       this.breakFrame = this.frameNo;
-      this.fx.blockBreak(x, y, z, prev, n <= 6);
+      if (n <= 60 || Math.random() < 0.06) this.fx.blockBreak(x, y, z, prev, n <= 6);
       const c = _v1.set(x + 0.5, y + 0.5, z + 0.5);
       if (n <= 2) this.audio.blockBreak(matOf(prev), c, 0.7);
     } else if (!prev && id && !(this.me && this.me.isLocal && this.lastPlaced === this.world.idx(x, y, z))) {
@@ -1693,6 +1735,8 @@ export class Game {
     this.clouds.position.x = ((this.now * 1.2) % 300) - 150;
     this.skyDome.position.copy(this.camera.position);
     this.mesher.time.value = this.now;
+    if (!this.isHost) this.fire.clientTick();
+    this.fire.fx(dt, this.camera.position);
     this.fx.update(dt);
     this.mesher.update(this.mesher.dirtyList.size > 40 ? 6 : 2.5, this.camera.position);
     this.updateHUD(dt);
@@ -1750,6 +1794,7 @@ export class Game {
     h.nades(p.nades);
     h.aim(p.aiming);
     h.scope(p.alive && !!w.scope && p.aiming && this.vm.ads > 0.85, w.scope);
+    h.iron(p.alive && this.firstPerson && p.aiming && !w.scope && !w.build && w.key !== 'hmg' && this.vm.ads > 0.55);
     const spread = this.currentSpread();
     const px = Math.tan(spread) * innerHeight / (2 * Math.tan(this.camera.fov * Math.PI / 360));
     this.enemyCheckT -= dt;

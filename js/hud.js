@@ -92,9 +92,12 @@ export class HUD {
       el.classList.toggle('show', !!v);
       el.classList.toggle('pgo', v === 'pgo');
       el.classList.toggle('pso', v === 'pso');
-      this.cross.style.display = v ? 'none' : '';
+      this.scopeOn = !!v; this.crossVis();
     });
   }
+  // прицеливание через открытый прицел оружия — перекрестие не нужно
+  iron(on) { this.set('iron', on, v => { this.ironOn = v; this.crossVis(); }); }
+  crossVis() { this.cross.style.display = this.scopeOn || this.ironOn ? 'none' : ''; }
   crosshair(px, enemy) {
     px = Math.round(Math.min(80, Math.max(4, px)));
     this.set('cpx', px, v => {

@@ -44,6 +44,7 @@ class Particles {
       transparent: true, depthWrite: false,
       blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
     });
+    this.fadeIn = !additive;
     this.points = new THREE.Points(g, this.mat);
     this.points.frustumCulled = false;
     this.points.renderOrder = additive ? 4 : 3;
@@ -79,7 +80,7 @@ class Particles {
       } else { P[i3] = nx; P[i3 + 1] = ny; P[i3 + 2] = nz; }
       const t = 1 - this.life[i] / this.maxLife[i];
       this.size[i] = this.s0[i] + (this.s1[i] - this.s0[i]) * t;
-      this.alpha[i] = this.a0[i] * (t < 0.7 ? 1 : 1 - (t - 0.7) / 0.3);
+      this.alpha[i] = this.a0[i] * (t < 0.7 ? (this.fadeIn && t < 0.15 ? t / 0.15 : 1) : 1 - (t - 0.7) / 0.3);
       this.col[i3] = this.c0[i3] + (this.c1[i3] - this.c0[i3]) * t;
       this.col[i3 + 1] = this.c0[i3 + 1] + (this.c1[i3 + 1] - this.c0[i3 + 1]) * t;
       this.col[i3 + 2] = this.c0[i3 + 2] + (this.c1[i3 + 2] - this.c0[i3 + 2]) * t;
@@ -284,6 +285,9 @@ export class FX {
     this.dust = new Particles(scene, Math.floor(2500 * q), false, world);
     this.glow = new Particles(scene, Math.floor(2000 * q), true, world);
     this.debris = new Debris(scene, Math.floor(450 * q), world);
+    // пламя и дым пожаров — свои пулы, чтобы пожар не вытеснял вспышки выстрелов
+    this.flames = new Particles(scene, Math.floor(900 * q), true, world);
+    this.smoke = new Particles(scene, Math.floor(500 * q), false, world);
     this.tracers = new Tracers(scene, 96);
     const holeTex = canvasTex(32, (c, s) => {
       const g = c.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
@@ -310,7 +314,7 @@ export class FX {
     this.time = 0;
   }
 
-  setScale(px) { this.dust.mat.uniforms.uScale.value = px; this.glow.mat.uniforms.uScale.value = px; }
+  setScale(px) { for (const P of [this.dust, this.glow, this.flames, this.smoke]) P.mat.uniforms.uScale.value = px; }
 
   later(delay, fn) { this.delayed.push({ t: this.time + delay, fn }); }
 
@@ -381,21 +385,34 @@ export class FX {
 
   explosion(p, radius) {
     const r = radius;
-    this.flashes.add(p, r * 3.2, 0.25, 0xffffff, 1.3);
-    this.flashes.add(p, r * 2.0, 0.45, 0xffaa44, 1.8);
-    this.rings.add(p, r * 0.8, 0.35, 0xffffff, 5);
-    for (let i = 0; i < 40 * this.q + 10; i++) {
-      const d = _v.set(rnd(-1, 1), rnd(-0.6, 1), rnd(-1, 1)).normalize(), s = rnd(4, 14);
-      this.glow.spawn(p.x, p.y, p.z, d.x * s, d.y * s + 2, d.z * s, rnd(0.25, 0.6), rnd(0.5, 1.1), 0.2, 1, rnd(0.6, 0.9), 0.25, { drag: 4, end: [0.6, 0.1, 0.02] });
+    // k > 1 — большой взрыв (РПГ, ТНТ): огненный шар крупнее, осколки дальше, дым грибом
+    const k = Math.max(1, r / 3.6), kc = Math.sqrt(k);
+    this.flashes.add(p, Math.min(r * 3.2, 34), 0.25 + 0.06 * k, 0xffffff, 1.3);
+    this.flashes.add(p, Math.min(r * 2.0, 26), 0.45 + 0.12 * k, 0xffaa44, 1.8);
+    this.rings.add(p, r * 0.8, 0.35 + 0.08 * k, 0xffffff, 5);
+    for (let i = 0; i < (40 * this.q + 10) * kc; i++) {
+      const d = _v.set(rnd(-1, 1), rnd(-0.6, 1), rnd(-1, 1)).normalize(), s = rnd(4, 14) * kc;
+      this.glow.spawn(p.x, p.y, p.z, d.x * s, d.y * s + 2, d.z * s, rnd(0.25, 0.6) * kc, rnd(0.5, 1.1) * kc, 0.2, 1, rnd(0.6, 0.9), 0.25, { drag: 4, end: [0.6, 0.1, 0.02] });
     }
-    for (let i = 0; i < 30 * this.q + 6; i++) {
-      const d = _v.set(rnd(-1, 1), rnd(-0.3, 1), rnd(-1, 1)).normalize(), s = rnd(10, 24);
-      this.glow.spawn(p.x, p.y, p.z, d.x * s, d.y * s, d.z * s, rnd(0.3, 0.9), 0.1, 0.03, 1, 0.8, 0.3, { grav: 20, drag: 1, bounce: true, end: [1, 0.3, 0] });
+    for (let i = 0; i < (30 * this.q + 6) * kc; i++) {
+      const d = _v.set(rnd(-1, 1), rnd(-0.3, 1), rnd(-1, 1)).normalize(), s = rnd(10, 24) * kc;
+      this.glow.spawn(p.x, p.y, p.z, d.x * s, d.y * s, d.z * s, rnd(0.3, 0.9) * kc, 0.1, 0.03, 1, 0.8, 0.3, { grav: 20, drag: 1, bounce: true, end: [1, 0.3, 0] });
     }
-    for (let i = 0; i < 26 * this.q + 6; i++) {
-      const d = _v.set(rnd(-1, 1), rnd(0, 1), rnd(-1, 1)).normalize(), s = rnd(1, 5);
+    for (let i = 0; i < (26 * this.q + 6) * kc; i++) {
+      const d = _v.set(rnd(-1, 1), rnd(0, 1), rnd(-1, 1)).normalize(), s = rnd(1, 5) * kc;
       const g = rnd(0.12, 0.3);
-      this.dust.spawn(p.x + d.x * r * 0.4, p.y + d.y * r * 0.3, p.z + d.z * r * 0.4, d.x * s, d.y * s + 1.5, d.z * s, rnd(1.5, 3.5), rnd(0.8, 1.4), rnd(2.5, 4.0), g, g, g, { drag: 1.8, alpha: 0.75, grav: -0.6 });
+      this.dust.spawn(p.x + d.x * r * 0.4, p.y + d.y * r * 0.3, p.z + d.z * r * 0.4, d.x * s, d.y * s + 1.5, d.z * s, rnd(1.5, 3.5) * kc, rnd(0.8, 1.4) * kc, rnd(2.5, 4.0) * kc * 1.3, g, g, g, { drag: 1.8, alpha: 0.75, grav: -0.6 });
+    }
+    // огненный шар и столб дыма
+    if (k > 1.5) {
+      for (let i = 0; i < 30 * this.q + 8; i++) {
+        const d = _v.set(rnd(-1, 1), rnd(-0.3, 1), rnd(-1, 1)).normalize(), s = rnd(0.5, 3) * kc;
+        this.flames.spawn(p.x + d.x * r * 0.3, p.y + d.y * r * 0.25, p.z + d.z * r * 0.3, d.x * s, d.y * s + 3, d.z * s, rnd(0.8, 1.6), rnd(1.5, 3) * kc, rnd(0.5, 1), 1, 0.7, 0.25, { grav: -4, drag: 1.5, end: [0.6, 0.08, 0.02] });
+      }
+      for (let i = 0; i < (10 * this.q + 4) * kc; i++) {
+        const g = rnd(0.08, 0.2), h = Math.random();
+        this.smoke.spawn(p.x + rnd(-1, 1) * r * 0.25, p.y + h * r * 0.6, p.z + rnd(-1, 1) * r * 0.25, rnd(-1, 1), 3 + h * 4 * kc, rnd(-1, 1), rnd(4, 7), rnd(1.5, 2.5) * kc, rnd(4, 6) * kc, g, g, g, { drag: 0.7, alpha: 0.65, grav: -0.3 });
+      }
     }
     // земля разлетается — комья
     for (let i = 0; i < 14 * this.q + 4; i++) {
@@ -432,10 +449,11 @@ export class FX {
       }
     }
     this.dust.update(dt); this.glow.update(dt); this.debris.update(dt); this.tracers.update(dt);
+    this.flames.update(dt); this.smoke.update(dt);
     this.flashes.update(dt); this.rings.update(dt);
   }
 
   clear() {
-    this.dust.clear(); this.glow.clear(); this.debris.clear(); this.tracers.clear(); this.decals.clear(); this.delayed.length = 0;
+    this.dust.clear(); this.glow.clear(); this.debris.clear(); this.flames.clear(); this.smoke.clear(); this.tracers.clear(); this.decals.clear(); this.delayed.length = 0;
   }
 }

@@ -187,6 +187,7 @@ export function genDust2(w, seed) {
   const { set, get, fill } = tools(w);
   fill(0, 0, 0, SX - 1, 0, SZ - 1, B.BEDROCK);
   fill(0, 1, 0, SX - 1, 8, SZ - 1, B.SANDSTONE);
+  fill(0, 7, 0, SX - 1, 8, SZ - 1, B.FLOORPLATE);   // крепкая плита под полом: пол не проваливается
   fill(0, 9, 0, SX - 1, 9, SZ - 1, B.SAND);
   fill(0, 10, 0, SX - 1, 17, SZ - 1, B.SANDSTONE);   // всё — стены, потом вырезаем улицы
   for (let y = 10; y <= 17; y++) for (let z = 0; z < SZ; z++) for (let x = 0; x < SX; x++) if (y % 4 === 1 && r() < 0.3) set(x, y, z, B.SANDBRICK);
@@ -206,6 +207,7 @@ export function genDust2(w, seed) {
   // яма
   for (let x = 80; x <= 87; x++) for (let z = 52; z <= 56; z++) fill(x, 7, z, x, 9, z, 0);
   for (let z = 52; z <= 56; z++) { set(80, 7, z, B.SAND); set(80, 8, z, B.SAND); }
+  fill(80, 6, 52, 87, 6, 56, B.FLOORPLATE);
   // точка A
   open(82, 34, 101, 56);
   fill(90, 10, 40, 100, 10, 52, B.SANDBRICK);

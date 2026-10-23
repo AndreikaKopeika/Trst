@@ -22,8 +22,8 @@ export const WEAPONS = [
     zoom: 1.25, tracer: 0xff8a3a, sound: 'hmg', auto: true, spinup: 0.45,
   },
   {
-    key: 'shotgun', name: 'Дробовик', short: 'ДРОБ', dmg: 13, head: 1.5, bdmg: 9, rate: 1.4, mag: 7, reload: 2.9,
-    spread: 0.075, adsSpread: 0.055, recoil: 0.06, kick: 0.9, range: 40, pellets: 9, speedMul: 1.02,
+    key: 'shotgun', name: 'Дробовик', short: 'ДРОБ', dmg: 19, head: 1.5, bdmg: 12, rate: 1.6, mag: 7, reload: 2.6,
+    spread: 0.062, adsSpread: 0.042, recoil: 0.06, kick: 0.9, range: 48, pellets: 10, speedMul: 1.02,
     zoom: 1.15, tracer: 0xffe0a0, sound: 'shotgun', auto: false,
   },
   {
@@ -35,12 +35,16 @@ export const WEAPONS = [
     key: 'build', name: 'Стройка', short: 'БЛОК', build: true, rate: 6, mag: 0, speedMul: 1.05, zoom: 1,
   },
 ];
+// урон по блокам от оружия +15%
+for (const w of WEAPONS) if (w.bdmg) w.bdmg = Math.round(w.bdmg * 1.15 * 10) / 10;
 export const W = { AK: 0, LMG: 1, SNIPER: 2, HMG: 3, SHOTGUN: 4, RPG: 5, BUILD: 6 };
 
 export const EXPLOSIONS = {
-  rocket: { radius: 3.6, power: 340, dmg: 120, push: 16 },
-  nade: { radius: 3.2, power: 300, dmg: 110, push: 14 },
-  tnt: { radius: 4.2, power: 420, dmg: 140, push: 18 },
+  // egg — урон по яйцу в центре и радиус, на котором он спадает до нуля
+  rocket: { radius: 6.5, power: 340, dmg: 120, push: 16, egg: [180, 4.8], fire: 0.25 },
+  nade: { radius: 3.2, power: 300, dmg: 110, push: 14, egg: [165, 4.4], fire: 0.15 },
+  // ТНТ: гигантский взрыв — радиус ×4, урон ×2, а по яйцу вдвое слабее прежнего
+  tnt: { radius: 16.8, power: 840, dmg: 280, push: 30, egg: [105, 5.4], fire: 0.5, pr: 1.25 },
 };
 
 export const MAX_HP = 100;

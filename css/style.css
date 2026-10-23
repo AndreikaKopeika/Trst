@@ -115,8 +115,8 @@ button { font: inherit; }
 /* кнопки управления */
 #touchUI .btn {
   position: absolute; width: 64px; height: 64px; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center;
-  background: rgba(255,255,255,0.13); border: 2px solid rgba(255,255,255,0.35); color: #fff; box-shadow: 0 2px 8px #0005;
-  backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+  /* без backdrop-filter: размытие фона под кнопками пересчитывается каждый кадр и съедало до половины FPS на телефонах */
+  background: rgba(20,24,36,0.32); border: 2px solid rgba(255,255,255,0.4); color: #fff; box-shadow: 0 2px 6px #0004;
 }
 #touchUI .btn svg { width: 55%; height: 55%; }
 #touchUI .btn.down { background: rgba(255,210,100,0.4); transform: scale(0.93); }

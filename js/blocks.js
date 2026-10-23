@@ -31,7 +31,7 @@ export const BLOCKS = [
   { id: 13, name: 'Синяя шерсть', hp: 50, tiles: [T.woolBlue, T.woolBlue, T.woolBlue], color: 0x2c55c8, cost: 1 },
   { id: 14, name: 'Бедрок', hp: Infinity, tiles: [T.bedrock, T.bedrock, T.bedrock], color: 0x333333, ric: 0.5 },
   { id: 15, name: 'Мешки', hp: 200, tiles: [T.sandbag, T.sandbag, T.sandbag], color: 0xc2a774, tough: 0.25, cost: 2 },
-  { id: 16, name: 'ТНТ', hp: 20, tiles: [T.tntTop, T.tntTop, T.tntSide], color: 0xd23a2a, explosive: true, cost: 6 },
+  { id: 16, name: 'ТНТ', hp: 20, tiles: [T.tntTop, T.tntTop, T.tntSide], color: 0xd23a2a, explosive: true, cost: 12 },
   { id: 17, name: 'Гравий', hp: 35, tiles: [T.gravel, T.gravel, T.gravel], color: 0x857d78 },
   { id: 18, name: 'Тёмный камень', hp: 220, tiles: [T.darkStone, T.darkStone, T.darkStone], color: 0x55555c, ric: 0.4 },
   { id: 19, name: 'Ящик', hp: 60, tiles: [T.crate, T.crate, T.crate], color: 0x9c7038, cost: 1 },
@@ -44,13 +44,19 @@ export const BLOCKS = [
   { id: 26, name: 'Дверь', hp: 80, tiles: [T.door, T.door, T.door], color: 0x2f5f9a, mat: 'wood' },
   { id: 27, name: 'Красные доски', hp: 90, tiles: [T.planks, T.planks, T.redWood], color: 0xa8442f, mat: 'wood' },
   { id: 28, name: 'Синий металл', hp: 320, tiles: [T.concrete, T.concrete, T.blueMetal], color: 0x46679a, ric: 0.6, mat: 'metal' },
+  // плита под полом Dust 2: выглядит как песчаник, а крепкая как сталь — пол не проломить за пару секунд
+  { id: 29, name: 'Плита пола', hp: 520, tiles: [T.sandstoneTop, T.sandstoneTop, T.sandstone], color: 0xd8c08a, ric: 0.3, tough: 0.5, mat: 'stone' },
 ];
+// все блоки на 30% прочнее
+for (const d of BLOCKS) if (d && d.hp !== Infinity) d.hp = Math.round(d.hp * 1.3);
+// что горит: огонь от взрывов перекидывается по дереву, шерсти и листве (ТНТ от огня взрывается)
+for (const i of [5, 6, 7, 12, 13, 16, 19, 26, 27]) BLOCKS[i].burn = true;
 
 export const B = {
   AIR: 0, GRASS: 1, DIRT: 2, STONE: 3, SAND: 4, LOG: 5, LEAVES: 6, PLANKS: 7, BRICK: 8, CONCRETE: 9,
   STEEL: 10, GLASS: 11, WOOL_RED: 12, WOOL_BLUE: 13, BEDROCK: 14, SANDBAG: 15, TNT: 16, GRAVEL: 17,
   DARKSTONE: 18, CRATE: 19, SNOW: 20, LAMP: 21,
-  SANDSTONE: 22, SANDBRICK: 23, WATER: 24, ROOF: 25, DOOR: 26, REDWOOD: 27, BLUEMETAL: 28,
+  SANDSTONE: 22, SANDBRICK: 23, WATER: 24, ROOF: 25, DOOR: 26, REDWOOD: 27, BLUEMETAL: 28, FLOORPLATE: 29,
 };
 // таблицы свойств по id: твёрдый (для физики), жидкость
 export const SOLID = new Uint8Array(256), LIQUID = new Uint8Array(256);
