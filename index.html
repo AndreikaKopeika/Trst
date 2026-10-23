@@ -60,6 +60,7 @@
   </div>
 
   <!-- сенсорное управление -->
+ <div id="edgeL" class="edgeGlow"></div><div id="edgeR" class="edgeGlow"></div>
   <div id="lockHint" class="hidden ui-allow"><b>Кликни, чтобы играть</b><span>Мышь — обзор · Esc — меню</span></div>
   <div id="keyHints"><b>ЛКМ</b> огонь <b>ПКМ</b> прицел <b>R</b> перезарядка <b>G</b> граната <b>Q</b> стройка <b>Shift</b> бег <b>Пробел</b> прыжок <b>1–7</b> оружие <b>V</b> вид <b>Tab</b> счёт</div>
   <div id="touchUI">
@@ -68,11 +69,11 @@
     <div class="btn" id="btnFire2" data-btn="fire2"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="2" fill="currentColor"/></svg></div>
     <div class="btn big hidden" id="btnPlace" data-btn="place"><span>＋</span><small>СТАВИТЬ</small></div>
     <div class="btn hidden" id="btnMine" data-btn="mine"><span>⛏</span><small>ЛОМАТЬ</small></div>
-    <div class="btn" id="btnAim" data-btn="aim"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 5v4M12 15v4M5 12h4M15 12h4" stroke="currentColor" stroke-width="2"/></svg></div>
-    <div class="btn" id="btnJump" data-btn="jump"><svg viewBox="0 0 24 24"><path d="M12 4l7 8h-4v7H9v-7H5z" fill="currentColor"/></svg></div>
-    <div class="btn small" id="btnReload" data-btn="reload"><svg viewBox="0 0 24 24"><path d="M19 12a7 7 0 1 1-2.05-4.95" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M19 3v5h-5" fill="none" stroke="currentColor" stroke-width="2.4"/></svg></div>
-    <div class="btn small" id="btnNade" data-btn="nade"><b id="nadeCount"></b><svg viewBox="0 0 24 24"><circle cx="12" cy="14" r="6.5" fill="currentColor"/><rect x="10" y="4" width="4" height="4" fill="currentColor"/><path d="M14 5l4-2" stroke="currentColor" stroke-width="2"/></svg></div>
-    <div class="btn small" id="btnBuild" data-btn="build"><svg viewBox="0 0 24 24"><path d="M12 2l9 5v10l-9 5-9-5V7z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 12l9-5M12 12v10M12 12L3 7" stroke="currentColor" stroke-width="2"/></svg></div>
+    <div class="btn" id="btnAim" data-key="F" data-btn="aim"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 5v4M12 15v4M5 12h4M15 12h4" stroke="currentColor" stroke-width="2"/></svg></div>
+    <div class="btn" id="btnJump" data-key="␣" data-btn="jump"><svg viewBox="0 0 24 24"><path d="M12 4l7 8h-4v7H9v-7H5z" fill="currentColor"/></svg></div>
+    <div class="btn small" id="btnReload" data-key="R" data-btn="reload"><svg viewBox="0 0 24 24"><path d="M19 12a7 7 0 1 1-2.05-4.95" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M19 3v5h-5" fill="none" stroke="currentColor" stroke-width="2.4"/></svg></div>
+    <div class="btn small" id="btnNade" data-key="G" data-btn="nade"><b id="nadeCount"></b><svg viewBox="0 0 24 24"><circle cx="12" cy="14" r="6.5" fill="currentColor"/><rect x="10" y="4" width="4" height="4" fill="currentColor"/><path d="M14 5l4-2" stroke="currentColor" stroke-width="2"/></svg></div>
+    <div class="btn small" id="btnBuild" data-key="Q" data-btn="build"><svg viewBox="0 0 24 24"><path d="M12 2l9 5v10l-9 5-9-5V7z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 12l9-5M12 12v10M12 12L3 7" stroke="currentColor" stroke-width="2"/></svg></div>
   </div>
 
   <div id="scoreboard" class="hidden ui-allow"><div class="sb-inner"><div class="sb-col" id="sb0"></div><div class="sb-col" id="sb1"></div></div><button data-btn="score" class="close">Закрыть</button></div>
@@ -186,7 +187,10 @@
         <div class="note" id="gfxInfo"></div>
       </section>
       <section data-tab="ctrl">
-        <div class="row"><span>Чувствительность</span><input type="range" id="sens" min="0.3" max="3" step="0.05" value="1"><i id="sensVal">1.0</i></div>
+        <div class="row wide"><span>Способ ввода</span><div class="seg" id="inMode"><button data-v="auto">🤖 Авто</button><button data-v="touch">👆 Сенсор</button><button data-v="desktop">🖱 Мышь</button></div></div>
+        <div class="note" id="inputInfo"></div>
+        <div class="row"><span>Обзор пальцем</span><input type="range" id="sens" min="0.3" max="3" step="0.05" value="1"><i id="sensVal">1.0</i></div>
+        <div class="row"><span>Мышь</span><input type="range" id="mouseSens" min="0.2" max="3" step="0.05" value="1"><i id="mouseSensVal">1.0</i></div>
         <div class="row"><span>В прицеле</span><input type="range" id="adsSens" min="0.3" max="1.5" step="0.05" value="1"><i id="adsVal">100%</i></div>
         <label class="row"><span>Инверсия по вертикали</span><input type="checkbox" id="invertY"></label>
         <div class="touchOnly">
@@ -195,7 +199,7 @@
           <div class="row"><span>Прозрачность кнопок</span><input type="range" id="btnAlpha" min="0.25" max="1" step="0.05"><i id="btnAlphaVal"></i></div>
           <div class="btnrow"><button id="btnLayout" class="primary">✋ Расставить кнопки</button></div>
         </div>
-        <div class="note deskOnly">ПК: WASD — ходьба, Shift — бег, пробел — прыжок, ЛКМ — огонь, ПКМ — прицел, R — перезарядка, G/E/колесо — граната, Q — стройка, 1–7 — оружие, V — вид, Tab — счёт, Esc — меню.</div>
+        <div class="note kbdOnly">Клавиатура: WASD — ходьба, Shift — бег, пробел — прыжок, ЛКМ — огонь, ПКМ — прицел, R — перезарядка, G/E/колесо — граната, Q — стройка, 1–7 — оружие, V — вид, Tab — счёт, Esc или ` — меню. Мышь без клавиатуры: ходишь джойстиком, смотришь и стреляешь мышью.</div>
       </section>
       <section data-tab="snd">
         <label class="row"><span>Звук</span><input type="checkbox" id="soundOn" checked></label>

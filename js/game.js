@@ -687,7 +687,7 @@ export class Game {
     }
     if (!p.alive) { p.firing = false; return; }
     const w = WEAPONS[p.weapon];
-    if (inp.fire && !w.build && this.input.isTouch) this.aimAssist(dt);
+    if (inp.fire && !w.build && this.input.mode === 'touch') this.aimAssist(dt);
     // движение
     const fx = -Math.sin(p.yaw), fz = -Math.cos(p.yaw), rx = Math.cos(p.yaw), rz = -Math.sin(p.yaw);
     let wx = fx * inp.my + rx * inp.mx, wz = fz * inp.my + rz * inp.mx;

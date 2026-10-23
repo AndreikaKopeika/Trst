@@ -20,6 +20,8 @@ if (!coarse) document.body.classList.add('desktop');
 
 const settings = {
   sens: store.get('sens', 1),
+  mouseSens: store.get('mouseSens', 1),
+  inputMode: store.get('inputMode', 'auto'),
   adsSens: store.get('adsSens', 1),
   invertY: store.get('invertY', false),
   quality: store.get('quality', isTouch ? 'med' : 'high'),
@@ -75,17 +77,41 @@ const hud = new HUD();
 const audio = new Audio();
 audio.enabled = settings.sound;
 const input = new Input(canvas);
-input.sens = settings.sens; input.invertY = settings.invertY;
+input.sens = settings.sens; input.invertY = settings.invertY; input.mouseSens = settings.mouseSens;
 let game = null;
 let paused = false;
-input.onMode = (m) => { document.body.classList.toggle('desktop', m === 'desktop'); updateLockHint(); };
+// Интерфейс под способ ввода. Мышь без клавиатуры на телефоне: экранные кнопки остаются (ходить джойстиком),
+// а смотреть и стрелять можно мышью. Клавиатура без мыши: кнопки остаются, на них видны подписи клавиш.
+let lastMode = input.mode, lastFree = false;
+function applyInputUI() {
+  const desk = input.mode === 'desktop', B = document.body.classList;
+  B.toggle('desktop', desk && (input.seen.kbd || !isTouch));
+  B.toggle('mousing', desk);
+  B.toggle('freemouse', desk && input.free);
+  B.toggle('kbd', input.seen.kbd);
+  const playing = !!game && B.contains('playing');
+  if (playing && (input.mode !== lastMode || input.free !== lastFree)) {
+    if (desk && !input.free) hud.feed(input.locked ? '🖱 Управление мышью' : '🖱 Мышь — кликни по экрану, чтобы захватить курсор');
+    else if (desk) hud.feed('🖱 Обзор мышью без захвата курсора: у краёв экрана камера доворачивает сама');
+    else hud.feed('👆 Сенсорное управление');
+  }
+  lastMode = input.mode; lastFree = input.free;
+  updateLockHint(); syncInputInfo();
+}
+input.onMode = applyInputUI;
+input.onSeen = (what) => {
+  applyInputUI();
+  if (game && document.body.classList.contains('playing')) hud.feed(what === 'kbd' ? '⌨ Клавиатура: WASD — ходьба, пробел — прыжок, R, G, Q, 1–7' : '🖱 Найдена мышь');
+};
 input.onLockChange = (locked) => {
   updateLockHint();
   // вышли из захвата мыши (Esc) во время игры — пауза
-  if (!locked && game && game.ready && !paused && input.mode === 'desktop' && document.body.classList.contains('playing')) setPause(true);
+  if (!locked && game && game.ready && !paused && input.needLock && document.body.classList.contains('playing')) setPause(true);
 };
+input.setPref(settings.inputMode);
+applyInputUI();
 function updateLockHint() {
-  const show = input.mode === 'desktop' && !input.locked && !!game && !paused && document.body.classList.contains('playing');
+  const show = input.needLock && !input.locked && !!game && !paused && document.body.classList.contains('playing');
   $('lockHint').classList.toggle('hidden', !show);
 }
 
@@ -140,7 +166,7 @@ function enterPlay() {
   document.body.classList.add('playing');
   input.active = true;
   input.reset();
-  if (input.mode === 'desktop') input.lock();
+  if (input.needLock) input.lock();
   updateLockHint();
   $('btnFire2').classList.toggle('hidden', !settings.leftFire);
   if (game && game.code) { $('pauseRoom').textContent = 'Код комнаты: ' + game.code; }
@@ -246,7 +272,11 @@ function setPause(on) {
   if (on) { input.reset(); if (document.pointerLockElement) document.exitPointerLock(); }
   updateLockHint();
 }
-function resume() { setPause(false); if (input.mode === 'desktop') input.lock(); else goFullscreen(); }
+function resume() {
+  setPause(false);
+  if (input.mode !== 'desktop' || isTouch) goFullscreen();
+  if (input.needLock) input.lock();
+}
 $('btnResume').addEventListener('click', resume);
 window.addEventListener('keydown', (e) => {
   if (e.code !== 'Escape') return;
@@ -315,6 +345,16 @@ function updateGfxInfo() {
 // --- вкладка «Управление» ---
 $('sens').addEventListener('input', (e) => { settings.sens = Number(e.target.value); input.sens = settings.sens; $('sensVal').textContent = settings.sens.toFixed(2); store.set('sens', settings.sens); });
 $('adsSens').addEventListener('input', (e) => { settings.adsSens = Number(e.target.value); $('adsVal').textContent = Math.round(settings.adsSens * 100) + '%'; store.set('adsSens', settings.adsSens); });
+$('mouseSens').addEventListener('input', (e) => { settings.mouseSens = Number(e.target.value); input.mouseSens = settings.mouseSens; $('mouseSensVal').textContent = settings.mouseSens.toFixed(2); store.set('mouseSens', settings.mouseSens); });
+onSeg('inMode', (v) => { settings.inputMode = v; store.set('inputMode', v); input.setPref(v); segSel('inMode', v); applyInputUI(); });
+function syncInputInfo() {
+  const el = $('inputInfo'); if (!el) return;
+  const parts = [];
+  parts.push(input.mode === 'desktop' ? 'сейчас: 🖱 мышь' + (input.seen.kbd ? ' + ⌨' : '') : 'сейчас: 👆 сенсор' + (input.seen.kbd ? ' + ⌨ клавиатура' : ''));
+  if (input.mode === 'desktop') parts.push(input.free ? 'курсор не захватывается браузером — обзор движением мыши, у краёв экрана камера доворачивает' : 'захват курсора работает');
+  if (isTouch && !input.seen.mouse) parts.push('подключи мышь/клавиатуру (Bluetooth или OTG) — управление переключится само');
+  el.textContent = parts.join(' · ');
+}
 $('invertY').addEventListener('change', (e) => { settings.invertY = e.target.checked; input.invertY = settings.invertY; store.set('invertY', settings.invertY); });
 $('leftFire').addEventListener('change', (e) => { settings.leftFire = e.target.checked; store.set('leftFire', settings.leftFire); $('btnFire2').classList.toggle('hidden', !settings.leftFire); });
 $('btnScale').addEventListener('input', (e) => { settings.btnScale = Number(e.target.value); store.set('btnScale', settings.btnScale); $('btnScaleVal').textContent = Math.round(settings.btnScale * 100) + '%'; applyLayout(); });
@@ -340,6 +380,8 @@ function syncSettingsUI() {
   $('fpsOn').checked = settings.showFps;
   $('fov').value = settings.fov; $('fovVal').textContent = settings.fov + '°';
   $('sens').value = settings.sens; $('sensVal').textContent = Number(settings.sens).toFixed(2);
+  $('mouseSens').value = settings.mouseSens; $('mouseSensVal').textContent = Number(settings.mouseSens).toFixed(2);
+  segSel('inMode', settings.inputMode); syncInputInfo();
   $('adsSens').value = settings.adsSens; $('adsVal').textContent = Math.round(settings.adsSens * 100) + '%';
   $('invertY').checked = settings.invertY;
   $('leftFire').checked = settings.leftFire;
