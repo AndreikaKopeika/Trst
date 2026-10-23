@@ -518,8 +518,8 @@ function roleMove(g, b, c, ts, dt) {
   }
 }
 // клетки вокруг яйца для ТНТ — ближние первыми
-// ТНТ теперь гигантский: сапёр отбегает подальше, прежде чем стрелять в него
-const TNT_COST = BLOCKS[B.TNT].cost, TNT_SAFE = EXPLOSIONS.tnt.radius * 1.1;
+// сапёр отбегает за радиус взрыва, прежде чем стрелять в свой ТНТ
+const TNT_COST = BLOCKS[B.TNT].cost, TNT_SAFE = Math.max(8.5, EXPLOSIONS.tnt.radius * 1.6 + 1);
 const EGG_TNT = [];
 for (let dy = 0; dy <= 1; dy++) for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) if (dx || dz) EGG_TNT.push([dx, dy, dz]);
 EGG_TNT.sort((a, b) => Math.hypot(a[0], a[2]) + a[1] * 0.5 - Math.hypot(b[0], b[2]) - b[1] * 0.5);

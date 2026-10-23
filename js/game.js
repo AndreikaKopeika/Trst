@@ -6,6 +6,7 @@ import { BLOCKS, B, BUILDABLE, buildAtlas, teamWool, matOf } from './blocks.js';
 import { ChickenModel, TEAM_COLORS } from './chicken.js';
 import { FX } from './fx.js';
 import { Fire } from './fire.js';
+import { VFX } from './vfx.js';
 import { Support } from './support.js';
 import { WEAPONS, W, EXPLOSIONS, MAX_HP, EGG_HP, RESPAWN_TIME, START_RES, MINE_DMG } from './weapons.js';
 import { updateBot, BOT_NAMES, BOT_WEAPONS } from './bots.js';
@@ -101,6 +102,8 @@ export class Game {
     this.mesher = new Mesher(this.world, scene, atlas.texture);
     this.world.onChange = (x, y, z) => { this.mesher.markBlock(x, y, z); if (this.nav) this.nav.markDirty(); };
     this.fx = new FX(scene, this.world, preset(this.settings.quality).fx);
+    this.vfx = new VFX(scene, this.world, preset(this.settings.quality).fx);
+    this.fx.vfx = this.vfx;
     this.fire = new Fire(this);
     this.support = new Support(this);
     this.vm = new ViewModel(this.renderer, atlas.texture);
@@ -174,6 +177,7 @@ export class Game {
       if (!sun.target.parent) this.scene.add(sun.target);
     }
     this.mesher.setLit(shadows > 0);
+    if (this.vfx) { this.vfx.setQuality(P.fx); this.vfx.setLights(shadows > 0); }
     if (was !== r.shadowMap.enabled) this.scene.traverse(o => { if (o.material) [].concat(o.material).forEach(m => { m.needsUpdate = true; }); });
     for (const p of this.players.values()) this.modelShadows(p.model);
     this.updateLights();
@@ -338,7 +342,7 @@ export class Game {
     this.applyEnvironment(this.world.info);
     this.mesher.rebuildAll();
     this.fx.clear();
-    if (this.fire) { this.fire.clear(); this.support.clear(); }
+    if (this.fire) { this.fire.clear(); this.support.clear(); this.vfx.reset(); }
     for (const e of this.eggs) this.scene.remove(e.mesh);
     this.eggs = this.world.info.eggs.map(e => this.makeEgg(e));
     if (this.isHost) { this.nav = new Nav(this.world); this.nav.setGoals(this.eggs); }
@@ -805,7 +809,7 @@ export class Game {
       this.spawnProjectile(msg);
       this.toHost({ t: 'proj', ...msg });
       this.fx.muzzle(muzzle, d, w, this.fpActive());
-      for (let i = 0; i < 8; i++) this.fx.dust.spawn(muzzle.x - d.x * 0.9, muzzle.y - d.y * 0.9, muzzle.z - d.z * 0.9, -d.x * 4 + Math.random() - 0.5, Math.random(), -d.z * 4 + Math.random() - 0.5, 1.2, 0.3, 1.4, 0.8, 0.8, 0.8, { drag: 3, alpha: 0.5 });
+      this.vfx.backblast(muzzle, d);
       p.model.fire(w.kick);
       this.audio.gunshot('rpg', null, 1);
       this.toHost({ t: 'shotfx', w: p.weapon });
@@ -1468,7 +1472,7 @@ export class Game {
       this.fx.flashes.add(at, 1.2, 0.15, 0xffffff, 1.5);
       this.audio.cluck(0.8, at, 0.9 + Math.random() * 0.3);
     }
-    const wn = typeof m.w === 'number' ? WEAPONS[m.w].short : m.w === 'tnt' ? 'ТНТ' : m.w === 'nade' ? 'ГРАНАТА' : m.w === 'fire' ? '🔥 ОГОНЬ' : '💥';
+    const wn = typeof m.w === 'number' ? WEAPONS[m.w].short : m.w === 'tnt' ? 'ТНТ' : m.w === 'nade' ? 'ГРАНАТА' : m.w === 'fire' ? '🔥 ОГОНЬ' : m.w === 'smoke' ? '😷 ДЫМ' : '💥';
     const cls = (p) => p ? (p.team === 0 ? 'r' : 'b') : '';
     const mine = m.k === this.myId || m.v === this.myId;
     if (k && k !== v) this.hud.feed(`<span class="${cls(k)}">${esc(k.name)}</span><span class="w">${m.h ? '🎯' : ''}${wn}</span><span class="${cls(v)}">${esc(v ? v.name : '?')}</span>`, mine);
@@ -1487,9 +1491,16 @@ export class Game {
     if (pr) this.killProj(pr);
     const p = new THREE.Vector3(m.x, m.y, m.z);
     const E = EXPLOSIONS[m.k];
-    this.fx.explosion(p, E.radius);
+    this.fx.explosion(p, E.radius, E.power / 340);
     this.audio.explosion(p, m.k !== 'nade');
     const d = this.camera.position.distanceTo(p);
+    // ударная волна по экрану и вспышка
+    if (this.post && this.post.shock) {
+      const s = _v1.copy(p).project(this.camera);
+      const str = Math.min(1, E.radius * Math.sqrt(E.power / 340) / Math.max(4, d)) ;
+      if (s.z < 1 && Math.abs(s.x) < 1.6 && Math.abs(s.y) < 1.6) this.post.shock(s.x * 0.5 + 0.5, s.y * 0.5 + 0.5, str);
+      this.post.flashOn(Math.min(0.6, E.radius * 1.5 / Math.max(3, d)) * (s.z < 1 ? 1 : 0.4));
+    }
     this.shake = Math.min(1.5, this.shake + Math.max(0, 1.2 - d / 25));
     // отбрасывание себя (ракетные прыжки!)
     const me = this.me;
@@ -1506,6 +1517,7 @@ export class Game {
   }
 
   onBlockChange(x, y, z, prev, id) {
+    this.vfx.field.blockChanged(x, y, z);
     if (prev && !id) {
       // при взрыве ломаются десятки блоков: полные обломки и звук — только у первых в кадре
       const n = this.breaksThisFrame = (this.breakFrame === this.frameNo ? this.breaksThisFrame : 0) + 1;
@@ -1737,6 +1749,8 @@ export class Game {
     this.mesher.time.value = this.now;
     if (!this.isHost) this.fire.clientTick();
     this.fire.fx(dt, this.camera.position);
+    this.vfx.update(dt, this.camera.position, this.fire.cells);
+    if (this.post && this.post.setVeil) this.post.setVeil(this.vfx.veil, this.vfx.veilHeat);
     this.fx.update(dt);
     this.mesher.update(this.mesher.dirtyList.size > 40 ? 6 : 2.5, this.camera.position);
     this.updateHUD(dt);

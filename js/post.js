@@ -32,7 +32,17 @@ const FS_FINAL = `
 precision highp float;
 uniform sampler2D tIn; uniform sampler2D tB1; uniform sampler2D tB2;
 uniform vec2 inSize; uniform vec2 outSize; uniform float bloom; uniform float grade; uniform float vig; uniform float easu;
+uniform vec4 uShock0; uniform vec4 uShock1; uniform vec4 uVeil; uniform float uFlash;
 varying vec2 vUv;
+// ударная волна: кольцо, которое расходится от взрыва и преломляет картинку
+vec2 shockRing(vec4 s, vec2 uv, float asp) {
+  if (s.w <= 0.0) return vec2(0.0);
+  vec2 d = (uv - s.xy) * vec2(asp, 1.0);
+  float r = length(d);
+  float k = (r - s.z) / (0.035 + s.z * 0.12);
+  float ring = exp(-k * k) * (k < 0.0 ? 1.0 : 0.6);
+  return d / max(r, 1e-4) * ring * s.w * vec2(1.0 / asp, 1.0);
+}
 vec3 T(vec2 p) { return texture2D(tIn, (p + 0.5) / inSize).rgb; }
 float L(vec3 c) { return c.g + 0.5 * (c.r + c.b); }
 void S(inout vec2 dir, inout float len, float w, float lA, float lB, float lC, float lD, float lE) {
@@ -52,8 +62,8 @@ void A(inout vec3 aC, inout float aW, vec2 off, vec2 dir, vec2 len, float lob, f
   float w = wB * wA;
   aC += c * w; aW += w;
 }
-vec3 upscale() {
-  vec2 pp = gl_FragCoord.xy * (inSize / outSize) - 0.5;
+vec3 upscale(vec2 frag) {
+  vec2 pp = frag * (inSize / outSize) - 0.5;
   vec2 fp = floor(pp); pp -= fp;
   vec3 bC = T(fp + vec2(0.0, -1.0)), cC = T(fp + vec2(1.0, -1.0));
   vec3 eC = T(fp + vec2(-1.0, 0.0)), fC = T(fp), gC = T(fp + vec2(1.0, 0.0)), hC = T(fp + vec2(2.0, 0.0));
@@ -89,7 +99,11 @@ vec3 upscale() {
   return min(mx, max(mn, aC / aW));
 }
 void main() {
-  vec3 c = easu > 0.5 ? upscale() : texture2D(tIn, vUv).rgb;
+  float asp = outSize.x / outSize.y;
+  vec2 off = shockRing(uShock0, vUv, asp) + shockRing(uShock1, vUv, asp);
+  vec3 c = easu > 0.5 ? upscale(gl_FragCoord.xy - off * outSize) : texture2D(tIn, vUv - off).rgb;
+  // вспышка взрыва ослепляет на миг
+  c += uFlash * vec3(0.95, 0.72, 0.42) * (1.0 - c * 0.5);
   if (bloom > 0.0) {
     vec3 bl = texture2D(tB1, vUv).rgb * 0.7 + texture2D(tB2, vUv).rgb;
     vec3 lin = c * c + bl * bloom;
@@ -101,6 +115,13 @@ void main() {
     c = mix(c, c * c * (3.0 - 2.0 * c), 0.18 * grade);         // мягкий контраст
   }
   if (vig > 0.0) { vec2 q = vUv - 0.5; c *= 1.0 - vig * dot(q, q) * 1.1; }
+  // стоишь в дыму: всё тонет в серой (или раскалённо-рыжей) мгле, края гуще
+  if (uVeil.a > 0.0) {
+    vec2 q = vUv - 0.5;
+    float a = clamp(uVeil.a * (0.8 + dot(q, q) * 1.6), 0.0, 0.95);
+    float l = dot(c, vec3(0.299, 0.587, 0.114));
+    c = mix(c, uVeil.rgb * (0.7 + l * 0.6), a);
+  }
   gl_FragColor = vec4(c, 1.0);
 }`;
 
@@ -151,7 +172,9 @@ export class Post {
     this.mFinal = mk(FS_FINAL, {
       tIn: { value: null }, tB1: { value: null }, tB2: { value: null }, inSize: { value: new THREE.Vector2() }, outSize: { value: new THREE.Vector2() },
       bloom: { value: 0 }, grade: { value: 1 }, vig: { value: 0.35 }, easu: { value: 1 },
+      uShock0: { value: new THREE.Vector4() }, uShock1: { value: new THREE.Vector4() }, uVeil: { value: new THREE.Vector4() }, uFlash: { value: 0 },
     });
+    this.shocks = []; this.flashV = 0; this.lastT = performance.now();
     this.mBright = mk(FS_BRIGHT, { tIn: { value: null }, px: { value: new THREE.Vector2() }, th: { value: 0.8 } });
     this.mBlur = mk(FS_BLUR, { tIn: { value: null }, dir: { value: new THREE.Vector2() } });
     this.mCopy = mk(FS_BLUR.replace(/c \+=.*\n/g, '').replace('* 0.2270270270', ''), { tIn: { value: null }, dir: { value: new THREE.Vector2() } });
@@ -163,6 +186,16 @@ export class Post {
     this.ow = 0; this.oh = 0; this.key = '';
   }
 
+  // ударная волна в точке экрана (0..1), str 0..1
+  shock(x, y, str) {
+    this.shocks.push({ x, y, t0: performance.now(), str });
+    if (this.shocks.length > 2) this.shocks.shift();
+  }
+  flashOn(v) { this.flashV = Math.max(this.flashV, v); }
+  setVeil(a, heat) {
+    const h = Math.min(1, heat * 1.5);
+    this.mFinal.uniforms.uVeil.value.set(0.17 + h * 0.3, 0.17 + h * 0.06, 0.18 - h * 0.08, a);
+  }
   configure(o) { Object.assign(this.opt, o); this.realloc(); }
   setSize(w, h) { this.ow = w; this.oh = h; this.realloc(); }
   get width() { return this.main ? this.main.width : 0; }
@@ -219,6 +252,16 @@ export class Post {
     F.outSize.value.set(this.ow, this.oh);
     F.easu.value = M.width < this.ow * 0.97 ? 1 : 0;
     F.grade.value = o.grade; F.vig.value = o.vig;
+    const now = performance.now(), dt = Math.min(0.1, (now - this.lastT) / 1000); this.lastT = now;
+    this.flashV = Math.max(0, this.flashV - dt * 3.2);
+    F.uFlash.value = this.flashV;
+    this.shocks = this.shocks.filter(s => now - s.t0 < 650);
+    [F.uShock0.value, F.uShock1.value].forEach((u, i) => {
+      const s = this.shocks[i];
+      if (!s) { u.set(0, 0, 0, 0); return; }
+      const t = (now - s.t0) / 650;
+      u.set(s.x, s.y, 0.02 + t * 0.9, s.str * 0.028 * Math.pow(1 - t, 1.6));
+    });
     this.pass(this.mFinal, null);
     r.autoClear = ac;
   }

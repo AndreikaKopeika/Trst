@@ -4,7 +4,7 @@
 import { BLOCKS, LIQUID } from './blocks.js';
 import { SX, SY, SZ } from './world.js';
 
-const MAX_FIRES = 420;
+const MAX_FIRES = 260;
 const rnd = (a, b) => a + Math.random() * (b - a);
 // сколько секунд горит блок, пока не сгорит совсем
 const BURN_TIME = { 5: [12, 16], 6: [2.5, 4], 7: [7, 10], 12: [4, 6], 13: [4, 6], 16: [0.6, 0.9], 19: [5, 7], 26: [6, 8], 27: [7, 10] };
@@ -20,6 +20,7 @@ export class Fire {
     this.cells = new Map(); // idx -> { x, y, z, blk, end, owner, next, hit, acc }
     this.ops = []; // [idx, 0 — земля / 1 — блок / 2 — потух] по порядку
     this.hurt = new Map(); // игрок -> накопленный урон
+    this.smog = new Map(); // игрок -> урон от дыма
     this.hurtT = 0;
   }
   clear() { this.cells.clear(); this.ops.length = 0; this.hurt.clear(); }
@@ -103,10 +104,28 @@ export class Fire {
         }
       }
     }
-    // урон тем, кто стоит в огне или на горящем блоке
+    // урон: огонь жжёт, густой горячий дым душит
     this.hurtT -= dt;
     const tick = this.hurtT <= 0;
     if (tick) this.hurtT = 0.3;
+    const F = g.vfx && g.vfx.field;
+    for (const p of g.players.values()) {
+      if (!p.alive || !F) continue;
+      const hx = p.pos.x, hy = p.pos.y + 1.35, hz = p.pos.z;
+      const d = F.sample(hx, hy, hz);
+      if (d > 0.9) {
+        const heat = F.heatAt(hx, hy, hz);
+        const dps = Math.min(12, (d - 0.9) * 4.5) + heat * Math.min(1, d) * 22;
+        const i = F.ci(hx, hy, hz), own = F.own.get(i);
+        const s = this.smog.get(p) || { v: 0, o: own };
+        s.v += dps * dt; if (own !== undefined) s.o = own;
+        this.smog.set(p, s);
+      }
+    }
+    if (tick) {
+      for (const [p, s] of this.smog) if (s.v > 0.4) g.hostDamage(p, s.v, s.o !== undefined ? s.o : p.id, 'smoke', false, p.pos);
+      this.smog.clear();
+    }
     if (!this.cells.size) return;
     for (const p of g.players.values()) {
       if (!p.alive) continue;
@@ -148,34 +167,19 @@ export class Fire {
   // ---------- картинка (у всех) ----------
   fx(dt, cam) {
     if (!this.cells.size) return;
-    const fx = this.g.fx, q = fx.q;
+    const vfx = this.g.vfx, fx = this.g.fx, q = fx.q;
     const cx = cam.x, cy = cam.y, cz = cam.z;
-    // общий бюджет частиц, чтобы большой пожар не съел FPS
-    let vis = 0;
     for (const c of this.cells.values()) {
       const dx = c.x - cx, dy = c.y - cy, dz = c.z - cz;
-      c.vis = dx * dx + dy * dy + dz * dz < 4900;
-      if (c.vis) vis++;
-    }
-    if (!vis) return;
-    const flameRate = Math.min(16, 700 / vis) * q, smokeRate = Math.min(2.2, 45 / vis) * q;
-    for (const c of this.cells.values()) {
-      if (!c.vis) continue;
-      c.fa = (c.fa || Math.random()) + flameRate * dt * (c.blk ? 1 : 0.75);
-      c.sa = (c.sa || Math.random()) + smokeRate * dt;
-      while (c.fa >= 1) {
-        c.fa -= 1;
-        let x, y, z;
-        if (c.blk) { x = c.x + rnd(-0.05, 1.05); y = c.y + rnd(0.1, 1.1); z = c.z + rnd(-0.05, 1.05); }
-        else { x = c.x + rnd(0.15, 0.85); y = c.y + rnd(0, 0.25); z = c.z + rnd(0.15, 0.85); }
-        const hot = Math.random();
-        fx.flames.spawn(x, y, z, rnd(-0.3, 0.3), rnd(1.0, 2.4), rnd(-0.3, 0.3), rnd(0.35, 0.75), rnd(0.45, 0.8) * (c.blk ? 1.2 : 1), 0.08,
-          1, 0.6 + hot * 0.3, 0.15 + hot * 0.15, { grav: -2.5, drag: 1.2, end: [0.85, 0.12, 0.02] });
-      }
-      while (c.sa >= 1) {
-        c.sa -= 1;
-        const s = rnd(0.12, 0.22);
-        fx.smoke.spawn(c.x + rnd(0.2, 0.8), c.y + (c.blk ? 1.2 : 0.7), c.z + rnd(0.2, 0.8), rnd(-0.3, 0.3), rnd(1.1, 2.0), rnd(-0.3, 0.3), rnd(2.5, 4.2), rnd(0.5, 0.8), rnd(1.6, 2.6), s, s, s, { drag: 0.5, alpha: 0.38, grav: -0.35 });
+      const vis = dx * dx + dy * dy + dz * dz < 4900;
+      vfx.fire(c, dt, vis);
+      if (!vis) continue;
+      // искры и угольки улетают вверх
+      c.ea = (c.ea || Math.random()) + dt * (c.blk ? 3 : 1.5) * q;
+      while (c.ea >= 1) {
+        c.ea -= 1;
+        fx.glow.spawn(c.x + rnd(0.1, 0.9), c.y + rnd(0.3, 1.2), c.z + rnd(0.1, 0.9), rnd(-0.6, 0.6), rnd(1.5, 3.5), rnd(-0.6, 0.6), rnd(0.8, 1.8), rnd(0.05, 0.09), 0.02,
+          1, rnd(0.5, 0.75), 0.15, { grav: -0.6, drag: 0.8, end: [0.9, 0.15, 0.02] });
       }
     }
   }
