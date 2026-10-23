@@ -405,3 +405,4 @@ body.nogun #crosshair, body.nogun #ammo, body.nogun #weapons, body.nogun #btnFir
   .cm-opts .row { padding: 2px; gap: 6px; font-size: 12px; }
   #campMenu .btnrow { margin: 4px 0 0; } #campMenu .btnrow button { padding: 8px; }
 }
+.cm-logo small.ver { display: block; letter-spacing: 1px; font-size: 9px; opacity: 0.45; margin-top: 2px; }

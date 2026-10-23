@@ -615,13 +615,23 @@ async function onMissionResult(i, r) {
   openCampMenu();
 }
 $('skipCine').addEventListener('click', () => { if (game && game.campaign) game.campaign.skip(); });
-// клавиатура в кампании: Enter/пробел — «НАЧАТЬ» на брифинге и пропуск ролика
-window.addEventListener('keydown', (e) => {
+// в кампании на брифинге и экранах итогов курсор не захватываем; если мышь всё же захвачена — клик запускает миссию
+const briefOpen = () => !$('brief').classList.contains('hidden');
+input.lockBlock = () => !!(game && game.campaign && game.campaign.cursor);
+input.onLockedClick = () => {
   const C = game && game.campaign;
-  if (!C || paused || (e.code !== 'Enter' && e.code !== 'Space' && e.code !== 'NumpadEnter')) return;
-  if (!$('brief').classList.contains('hidden')) { e.preventDefault(); if (C.brGo) $('brGo').click(); else if (C.briefSkip) C.briefSkip(); return; }
+  if (!C || !briefOpen()) return false;
+  if (C.brGo) $('brGo').click(); else if (C.briefSkip) C.briefSkip();
+  return true;
+};
+document.addEventListener('pointerlockchange', () => { if (document.pointerLockElement && game && game.campaign && game.campaign.cursor) document.exitPointerLock(); });
+// клавиатура в кампании: Enter/пробел — «НАЧАТЬ» на брифинге и пропуск ролика
+document.addEventListener('keydown', (e) => {
+  const C = game && game.campaign;
+  if (!C || paused || (e.code !== 'Enter' && e.code !== 'Space' && e.code !== 'NumpadEnter' && e.key !== 'Enter' && e.key !== ' ')) return;
+  if (briefOpen()) { e.preventDefault(); e.stopPropagation(); if (C.brGo) $('brGo').click(); else if (C.briefSkip) C.briefSkip(); return; }
   if (C.cineOn && !$('skipCine').classList.contains('hidden')) { e.preventDefault(); C.skip(); }
-});
+}, true);
 
 // ---------- цикл ----------
 window.addEventListener('resize', applySize);

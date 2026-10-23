@@ -87,6 +87,7 @@ export class Input {
       if (!this.active || this.lastPT === 'touch' || performance.now() - this.lastTouch < 800) return;
       this.sawMouse();
       if (this.mode !== 'desktop') return;
+      if (this.onLockedClick && this.onLockedClick()) return;
       if (!this.free && document.pointerLockElement !== canvas) { this.lock(); return; }
       if (e.button === 0) this.held.add('mouseL');
       if (e.button === 2) this.held.add('mouseR');
@@ -181,6 +182,7 @@ export class Input {
   }
   lock() {
     const c = this.canvas;
+    if (this.lockBlock && this.lockBlock()) return; // сейчас нужен свободный курсор (брифинг, итоги миссии)
     if (!c.requestPointerLock) { this.setFree(true); return; }
     if (this.free) return;
     const at = this.lockReqAt = performance.now();
