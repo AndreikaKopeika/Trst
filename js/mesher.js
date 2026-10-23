@@ -75,13 +75,30 @@ export class Mesher {
     this.litMat = new THREE.MeshLambertMaterial({ map: atlasTexture, vertexColors: true });
     this.opaqueMat = this.basicMat;
     this.glassMat = new THREE.MeshBasicMaterial({ map: atlasTexture, vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide });
+    // ночь: мир темнеет (множитель цвета), а фонари продолжают светиться (узнаём их по тайлу атласа)
+    const lr = tileUV(T.lamp);
+    this.nightU = { uNight: { value: new THREE.Color(1, 1, 1) }, uLampGlow: { value: 0 }, uLampRect: { value: new THREE.Vector4(lr[0], lr[1], lr[2], lr[3]) } };
+    const nightPatch = (lambert) => (sh) => {
+      Object.assign(sh.uniforms, this.nightU);
+      sh.fragmentShader = 'uniform vec3 uNight; uniform float uLampGlow; uniform vec4 uLampRect;\n' + sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
+  bool inLamp = false;
+#ifdef USE_MAP
+  inLamp = vMapUv.x > min(uLampRect.x, uLampRect.z) && vMapUv.x < max(uLampRect.x, uLampRect.z) && vMapUv.y > min(uLampRect.y, uLampRect.w) && vMapUv.y < max(uLampRect.y, uLampRect.w);
+#endif
+  if (!inLamp) diffuseColor.rgb *= uNight; else diffuseColor.rgb *= 1.0 + uLampGlow * 0.6;`);
+      if (lambert) sh.fragmentShader = sh.fragmentShader.replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+  if (inLamp) totalEmissiveRadiance += diffuseColor.rgb * uLampGlow;`);
+    };
+    this.basicMat.onBeforeCompile = nightPatch(false);
+    this.litMat.onBeforeCompile = nightPatch(true);
     // вода течёт и рябит: сдвигаем текстуру внутри её клетки атласа
     this.time = { value: 0 };
     const wr = tileUV(T.water);
     this.glassMat.onBeforeCompile = (sh) => {
       sh.uniforms.uTime = this.time;
+      sh.uniforms.uNight = this.nightU.uNight;
       sh.uniforms.wRect = { value: new THREE.Vector4(wr[0], wr[1], wr[2], wr[3]) };
-      sh.fragmentShader = 'uniform float uTime; uniform vec4 wRect;\n' + sh.fragmentShader.replace('#include <map_fragment>', `
+      sh.fragmentShader = 'uniform float uTime; uniform vec4 wRect; uniform vec3 uNight;\n' + sh.fragmentShader.replace('#include <map_fragment>', `
 #ifdef USE_MAP
   vec2 wuv = vMapUv; float wk = 1.0;
   if (wuv.x > wRect.x && wuv.x < wRect.z && wuv.y > wRect.y && wuv.y < wRect.w) {
@@ -93,6 +110,7 @@ export class Mesher {
   vec4 sampledDiffuseColor = texture2D(map, wuv);
   sampledDiffuseColor.rgb *= wk;
   diffuseColor *= sampledDiffuseColor;
+  diffuseColor.rgb *= uNight;
 #endif`);
     };
     this.chunks = new Array(CX * CY * CZ).fill(null).map(() => ({ opaque: null, glass: null, dirty: true }));
@@ -140,6 +158,7 @@ export class Mesher {
       if (performance.now() - t0 > budgetMs) break;
     }
   }
+  setNight(color, glow = 0) { this.nightU.uNight.value.set(color); this.nightU.uLampGlow.value = glow; }
   setLit(on) {
     if (on === this.lit) return;
     this.lit = on; this.opaqueMat = on ? this.litMat : this.basicMat;

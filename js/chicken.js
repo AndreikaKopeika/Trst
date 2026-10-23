@@ -141,7 +141,33 @@ function buildGun(key) {
   return g;
 }
 
-function nameTag(name, team) {
+// головные уборы персонажей кампании
+function hat(kind, head, o) {
+  if (kind === 'boonie') { // панама с широкими полями и усы — капитан
+    box(0.62, 0.05, 0.62, 0x5d6a3a, 0, 0.4, 0, head);
+    box(0.44, 0.14, 0.44, 0x6b7844, 0, 0.48, 0, head);
+    box(0.46, 0.04, 0.46, 0x3f4a26, 0, 0.43, 0, head);
+    box(0.34, 0.06, 0.06, 0x4a3420, 0, 0.04, -0.33, head);
+    box(0.08, 0.1, 0.06, 0x4a3420, 0.16, 0.0, -0.33, head); box(0.08, 0.1, 0.06, 0x4a3420, -0.16, 0.0, -0.33, head);
+  } else if (kind === 'cap') { // фуражка генерала
+    const c = o.capColor ?? 0x223355;
+    box(0.5, 0.12, 0.52, c, 0, 0.44, 0.0, head);
+    box(0.56, 0.06, 0.58, c, 0, 0.52, 0.0, head);
+    box(0.5, 0.04, 0.2, 0x111111, 0, 0.39, -0.3, head);
+    box(0.52, 0.04, 0.54, 0xd8b430, 0, 0.405, 0, head);
+    box(0.1, 0.08, 0.04, 0xffd84a, 0, 0.47, -0.27, head);
+  } else if (kind === 'helmet') { // каска
+    const c = o.capColor ?? 0x55613a;
+    box(0.54, 0.16, 0.54, c, 0, 0.42, 0, head);
+    box(0.44, 0.08, 0.44, c, 0, 0.53, 0, head);
+    box(0.6, 0.04, 0.6, c, 0, 0.35, 0, head);
+  } else if (kind === 'beanie') { // вязаная шапка спецназа
+    box(0.5, 0.2, 0.5, o.capColor ?? 0x222428, 0, 0.42, 0, head);
+    box(0.52, 0.06, 0.52, 0x15161a, 0, 0.33, 0, head);
+  }
+}
+
+function nameTag(name, team, color) {
   const cv = document.createElement('canvas');
   cv.width = 256; cv.height = 64;
   const c = cv.getContext('2d');
@@ -149,7 +175,7 @@ function nameTag(name, team) {
   c.textAlign = 'center'; c.textBaseline = 'middle';
   c.lineWidth = 7; c.strokeStyle = 'rgba(0,0,0,0.8)';
   c.strokeText(name, 128, 34);
-  c.fillStyle = team === 0 ? '#ff7a70' : '#79a6ff';
+  c.fillStyle = color || (team === 0 ? '#ff7a70' : '#79a6ff');
   c.fillText(name, 128, 34);
   const tex = new THREE.CanvasTexture(cv);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -172,11 +198,12 @@ const shadowMat = new THREE.MeshBasicMaterial({ map: shadowTex, transparent: tru
 const shadowGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
 
 export class ChickenModel {
-  constructor(team, name, showTag = true) {
+  // opts: vest — свой цвет жилета, hat — головной убор (boonie, cap, helmet, beanie), tag — цвет ника
+  constructor(team, name, showTag = true, opts = {}) {
     const root = this.root = new THREE.Group();
     const inner = this.inner = new THREE.Group();
     root.add(inner);
-    const WHITE = 0xf4f1ea, RED = 0xd8261e, YEL = 0xf5b21b, ORANGE = 0xf08a1c, TEAM = TEAM_COLORS[team];
+    const WHITE = 0xf4f1ea, RED = 0xd8261e, YEL = 0xf5b21b, ORANGE = 0xf08a1c, TEAM = opts.vest ?? TEAM_COLORS[team];
     // тело
     this.body = new THREE.Group(); inner.add(this.body);
     box(0.64, 0.56, 0.8, WHITE, 0, 0.74, 0, this.body);
@@ -195,6 +222,7 @@ export class ChickenModel {
     box(0.2, 0.1, 0.18, YEL, 0, 0.12, -0.3, this.head);                 // клюв
     box(0.16, 0.05, 0.14, 0xd99410, 0, 0.06, -0.28, this.head);
     box(0.08, 0.14, 0.06, RED, 0, -0.02, -0.25, this.head);            // бородка
+    if (opts.hat) hat(opts.hat, this.head, opts);
     box(0.06, 0.09, 0.05, 0x111111, 0.15, 0.22, -0.21, this.head);       // глаза
     box(0.06, 0.09, 0.05, 0x111111, -0.15, 0.22, -0.21, this.head);
     box(0.02, 0.03, 0.02, 0xffffff, 0.16, 0.25, -0.24, this.head);
@@ -227,7 +255,7 @@ export class ChickenModel {
     for (const w of this.wings) mergeGroup(w);
     this.buildLod();
     // имя и тень
-    if (showTag && name) { this.tag = nameTag(name, team); root.add(this.tag); }
+    if (showTag && name) { this.tag = nameTag(name, team, opts.tag); root.add(this.tag); }
     this.shadow = new THREE.Mesh(shadowGeo, shadowMat);
     this.shadow.scale.set(0.95, 1, 0.95);
     this.shadow.renderOrder = 1;

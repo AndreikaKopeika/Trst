@@ -161,9 +161,10 @@ function onSpawn(g, b, ts) {
   ai.spot = null; ai.sstate = 'pick'; ai.campUntil = 0; ai.tower = 0; ai.recallUntil = 0;
   ai.lastSeen = null; ai.lookAt = null; ai.lookT = 0; ai.placeT = 0; ai.decideT = 0;
   if (ai.climber === undefined) ai.climber = Math.random() < 0.5;
-  ai.job = pickRole(g, b, ts);
+  ai.job = ai.fixJob || pickRole(g, b, ts);
   if (ai.baseWeapon === undefined) ai.baseWeapon = b.weapon;
-  setWeapon(b, ai.job === 'sniper' ? W.SNIPER : ai.baseWeapon === W.SNIPER && ai.job !== 'sniper' ? W.AK : ai.baseWeapon);
+  if (ai.fixWeapon !== undefined) setWeapon(b, ai.fixWeapon);
+  else setWeapon(b, ai.job === 'sniper' ? W.SNIPER : ai.baseWeapon === W.SNIPER && ai.job !== 'sniper' ? W.AK : ai.baseWeapon);
 }
 
 // ---------- стройка ----------
@@ -340,9 +341,72 @@ function pickSpot(g, b, ts) {
   return best;
 }
 
+// ---------- приказы сценария кампании ----------
+// hold — держать точку (бродить в радиусе r), goto — дойти и стоять, patrol — обход точек,
+// follow — идти за игроком (напарник), attack — обычная атака по карте путей
+function orderMove(g, b, c, o, dt) {
+  const ai = b.ai;
+  o.out = false;
+  if (o.type === 'attack') return false;
+  if (o.type === 'follow') {
+    const L = g.players.get(o.id);
+    if (!L || !L.alive) { c.gx = null; return true; }
+    const fx = -Math.sin(L.yaw), fz = -Math.cos(L.yaw);
+    const side = o.side ?? 1;
+    const tx = L.pos.x - fx * (o.dist ?? 3) + fz * side * 1.4, tz = L.pos.z - fz * (o.dist ?? 3) - fx * side * 1.4;
+    const d = Math.hypot(tx - b.pos.x, tz - b.pos.z), dl = Math.hypot(L.pos.x - b.pos.x, L.pos.z - b.pos.z);
+    // отстал и игрок не смотрит — догоняем «за кадром»
+    if ((dl > (o.tele ?? 26) || Math.abs(L.pos.y - b.pos.y) > 6 && dl > 8) && g.seenByCam && !g.seenByCam(b.pos.x, b.pos.y + 1, b.pos.z)) {
+      const W_ = g.world;
+      for (const [ox, oz] of [[tx, tz], [L.pos.x - fx * 2, L.pos.z - fz * 2], [L.pos.x + fz * 1.5, L.pos.z - fx * 1.5], [L.pos.x, L.pos.z]]) {
+        const x = Math.floor(ox), z = Math.floor(oz), y0 = Math.floor(L.pos.y + 0.1);
+        const y = groundNear(W_, x, y0, z, 2, 3);
+        if (y >= 0 && !g.seenByCam(x + 0.5, y + 1, z + 0.5)) { b.pos.set(x + 0.5, y, z + 0.5); b.vel.set(0, 0, 0); break; }
+      }
+      c.gx = null; return true;
+    }
+    o.out = dl > (o.dist ?? 3) + 4;
+    if (d > 1.2 && dl > 1.8) { const hd = goPoint(g, b, c, [Math.floor(tx), Math.floor(L.pos.y), Math.floor(tz)]); void hd; c.gx = c.gx ?? tx; c.gz = c.gz ?? tz; }
+    else c.gx = null;
+    ai.speedMul = dl > 8 ? 1.15 : 1;
+    if (!c.aim && !ai.target) c.look = { x: L.pos.x + fx * 20, y: L.pos.y + 1.3, z: L.pos.z + fz * 20 };
+    return true;
+  }
+  if (o.type === 'patrol') {
+    const P = o.pts, cur = P[o.i || 0];
+    if (ai.target) { c.gx = null; return true; }
+    const d = Math.hypot(cur[0] + 0.5 - b.pos.x, cur[2] + 0.5 - b.pos.z);
+    if (d < 1.2) {
+      o.wait = (o.wait ?? (o.pause ?? 2)) - dt;
+      c.gx = null;
+      if (o.wait <= 0) { o.wait = undefined; o.i = ((o.i || 0) + 1) % P.length; }
+      if (cur[3] !== undefined) c.look = { x: b.pos.x - Math.sin(cur[3]) * 10, y: b.pos.y + 1.3, z: b.pos.z - Math.cos(cur[3]) * 10 };
+      return true;
+    }
+    c.gx = cur[0] + 0.5; c.gz = cur[2] + 0.5; c.direct = true;
+    ai.speedMul = ai.calm ? (o.walk ?? 0.45) : 1;
+    return true;
+  }
+  // hold / goto
+  const r = o.r ?? 2;
+  const d = Math.hypot(o.x + 0.5 - b.pos.x, o.z + 0.5 - b.pos.z);
+  ai.speedMul = ai.calm ? (o.walk ?? 0.5) : 1;
+  if (d > r) { o.out = true; goPoint(g, b, c, [Math.floor(o.x), Math.floor(o.y), Math.floor(o.z)]); if (c.gx === null) { c.gx = o.x + 0.5; c.gz = o.z + 0.5; c.direct = true; } return true; }
+  if (o.look !== undefined && !ai.target) c.look = { x: b.pos.x - Math.sin(o.look) * 10, y: b.pos.y + 1.3, z: b.pos.z - Math.cos(o.look) * 10 };
+  if (r > 3 && !ai.target) {
+    ai.wanderT -= dt;
+    if (!ai.wander || ai.wanderT <= 0) { ai.wanderT = rnd(3, 8); ai.wander = { x: o.x + rnd(-r, r) * 0.7, z: o.z + rnd(-r, r) * 0.7 }; }
+    c.gx = ai.wander.x; c.gz = ai.wander.z; c.direct = true;
+    if (Math.hypot(c.gx - b.pos.x, c.gz - b.pos.z) < 1.2) c.gx = null;
+  } else c.gx = null;
+  return true;
+}
+
 // ---------- роли (задают куда идти) ----------
 function roleMove(g, b, c, ts, dt) {
   const ai = b.ai, now = g.now, W_ = g.world;
+  ai.speedMul = 1;
+  if (ai.order && orderMove(g, b, c, ai.order, dt)) return;
   const ownEgg = g.eggs[b.team], enEgg = g.eggs[1 - b.team];
   const build = canBuild(g);
   let job = ai.job;
@@ -561,6 +625,8 @@ export function updateBot(g, b, dt) {
   if (g.now - ts.tick >= 0.5) teamThink(g, ts);
   if (!b.alive) { b.firing = false; ai.alive = false; ai.pillar = false; return; }
   if (!ai.alive || ai.round !== ts) { ai.alive = true; ai.round = ts; onSpawn(g, b, ts); }
+  if (ai.puppet) { b.firing = false; return; }                   // актёр ролика: двигает сценарий
+  if (ai.passive) { b.firing = false; g.stepBody(b, dt, 0, 0, SPEED, false); return; } // мишень
   const sk = skillOf(g);
   const w = WEAPONS[b.weapon];
   const now = g.now, W_ = g.world;
@@ -576,12 +642,19 @@ export function updateBot(g, b, dt) {
   if (ai.think <= 0) {
     ai.think = sk.think + Math.random() * 0.15;
     let best = null, bd = 1e9;
-    const range = w.key === 'sniper' ? (ai.job === 'sniper' ? 115 : 95) : 65;
+    const range = ai.sight || (w.key === 'sniper' ? (ai.job === 'sniper' ? 115 : 95) : 65);
+    const fx = -Math.sin(b.yaw), fz = -Math.cos(b.yaw);
     for (const p of g.players.values()) {
-      if (!p.alive || p.team === b.team) continue;
+      if (!p.alive || p.team === b.team || p.ghost) continue;
       const d = p.pos.distanceTo(b.pos);
       if (d > range || d >= bd) continue;
+      // спокойный (не поднята тревога) часовой замечает только перед собой и недалеко
+      if (ai.calm && d > (ai.ear ?? 4)) { if (d > (ai.calmSight ?? 20) || ((p.pos.x - b.pos.x) * fx + (p.pos.z - b.pos.z) * fz) / d < 0.4) continue; }
       if (visible(g, b, p.pos.x, p.pos.y + 0.9, p.pos.z)) { best = p; bd = d; }
+    }
+    if (best && ai.calm) {
+      ai.calm = false; ai.react = sk.react + 0.5 + Math.random() * 0.5;
+      if (g.campaign) g.campaign.onAlert(b, best);
     }
     if (best !== ai.target) {
       if (ai.target && ai.target.alive && !best) ai.lastSeen = { x: ai.target.pos.x, y: ai.target.pos.y, z: ai.target.pos.z, t: now };
@@ -615,7 +688,9 @@ export function updateBot(g, b, dt) {
     c.shoot = ai.react <= 0 && !(w.key === 'rpg' && d < 5);
     const want = w.key === 'shotgun' ? 5 : w.key === 'sniper' ? 32 : w.key === 'rpg' ? 18 : 13;
     const guard = ai.job === 'engineer' || ai.job === 'guard';
+    const ord = ai.order, anchored = ord && ord.type !== 'attack';
     if (c.camp) strafe = 0;
+    else if (anchored) { strafe = ord.still ? 0 : ai.strafe * 0.7; if (!ord.out) c.gx = null; }
     else if (ai.coverUntil > now) { c.gx = ai.coverPos[0]; c.gz = ai.coverPos[1]; c.direct = true; strafe = 0; }
     else {
       strafe = ai.strafe;
@@ -758,7 +833,7 @@ export function updateBot(g, b, dt) {
   if (!b.onGround && b.vel.y < -3 && !ai.pillar) jump = true; // планирует
   if (b.inWater) jump = true;                                   // в воде — всплываем и плывём
 
-  const speed = SPEED * (w.speedMul || 1) * (c.shoot && w.key === 'hmg' ? 0.7 : 1);
+  const speed = SPEED * (w.speedMul || 1) * (c.shoot && w.key === 'hmg' ? 0.7 : 1) * (ai.speedMul || 1);
   g.stepBody(b, dt, mx, mz, speed, jump);
   b.speed = Math.hypot(b.vel.x, b.vel.z);
 

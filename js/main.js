@@ -7,6 +7,9 @@ import { Input } from './input.js';
 import { createHost, createClient, makeCode } from './net.js';
 import { Post } from './post.js';
 import { PRESETS, preset } from './quality.js';
+import { Campaign, DIFF } from './campaign.js';
+import { MISSIONS, STORY, CREDITS } from './missions.js';
+import { Music, CampSfx } from './music.js';
 
 const $ = (id) => document.getElementById(id);
 const store = {
@@ -76,6 +79,7 @@ function applyPost() {
 const hud = new HUD();
 const audio = new Audio();
 audio.enabled = settings.sound;
+const music = new Music(audio), sfx = new CampSfx(audio);
 const input = new Input(canvas);
 input.sens = settings.sens; input.invertY = settings.invertY; input.mouseSens = settings.mouseSens;
 let game = null;
@@ -174,6 +178,8 @@ function enterPlay() {
 
 function exitToMenu(reason) {
   if (game) { game.dispose(); game = null; }
+  music.stop();
+  document.body.classList.remove('briefing', 'cine');
   hud.show(false);
   setPause(false);
   input.active = false;
@@ -267,6 +273,7 @@ $('setClose').addEventListener('click', () => { if (paused) resume(); else close
 
 function setPause(on) {
   paused = on;
+  try { if (game && game.campaign && game.campaign.voice) { if (on) speechSynthesis.pause(); else speechSynthesis.resume(); } } catch (e) { /* ignore */ }
   if (on) openSettings('game', true); else closeSettings();
   input.active = !on && !!game;
   if (on) { input.reset(); if (document.pointerLockElement) document.exitPointerLock(); }
@@ -290,6 +297,14 @@ $('btnView').addEventListener('click', () => { if (game) game.setView(!game.firs
 // --- вкладка «Игра»: комната и сеанс ---
 function syncGameTab() {
   if (!game) return;
+  if (game.campaign) {
+    const C = game.campaign;
+    $('pauseRoom').innerHTML = `🎖 Кампания · миссия ${C.mi}: <b style="color:#c8e27a">«${C.title}»</b> <button id="btnCpRetry">↻ С контрольной точки</button>`;
+    $('btnCpRetry').onclick = () => { const st = C.stage, i = C.mi; setPause(false); startMission(i, st); };
+    $('btnView').textContent = 'Вид: ' + (game.firstPerson ? 'от 1-го лица' : 'от 3-го лица');
+    $('sessHost').classList.add('hidden'); $('sessClient').classList.add('hidden');
+    return;
+  }
   $('pauseRoom').innerHTML = game.code ? `Код комнаты: <b style="letter-spacing:3px;color:#ffd23a">${game.code}</b> <button id="btnCopy2">Ссылка для друга</button>` : 'Офлайн-игра с ботами';
   const c2 = $('btnCopy2'); if (c2) c2.onclick = copyLink;
   $('btnView').textContent = 'Вид: ' + (game.firstPerson ? 'от 1-го лица' : 'от 3-го лица');
@@ -499,6 +514,108 @@ window.addEventListener('error', (e) => {
 document.addEventListener('touchend', () => { if (audio.ctx && audio.ctx.state !== 'running') audio.init(); }, { passive: true });
 document.addEventListener('visibilitychange', () => { if (!document.hidden && audio.ctx) audio.ctx.resume?.(); });
 
+// ===================== КАМПАНИЯ =====================
+const camp = Object.assign({ done: 0, diff: 1, voice: true, music: true, seen: false, sel: 0 }, store.get('camp', {}));
+const saveCamp = () => store.set('camp', camp);
+function renderCampMenu() {
+  const L = $('cmList');
+  camp.sel = Math.min(camp.sel ?? camp.done, Math.min(camp.done, MISSIONS.length - 1));
+  L.innerHTML = MISSIONS.map((m, i) => {
+    const lock = i > camp.done;
+    return `<button class="cm-m ${i === camp.sel ? 'sel' : ''} ${lock ? 'lock' : ''}" data-i="${i}"><b>${i}</b><span>${m.title}<small>${m.sub}</small></span><em>${lock ? '🔒' : i < camp.done ? '✔' : '▶'}</em></button>`;
+  }).join('');
+  L.querySelectorAll('.cm-m').forEach(b => b.addEventListener('click', () => { const i = Number(b.dataset.i); if (i > camp.done) return; camp.sel = i; saveCamp(); renderCampMenu(); }));
+  segSel('cmDiff', String(camp.diff));
+  $('cmDiffNote').textContent = DIFF[camp.diff].note;
+  $('cmVoice').checked = camp.voice; $('cmMusic').checked = camp.music;
+  $('cmGo').textContent = camp.sel === 0 && camp.done === 0 ? '▶ Начать кампанию' : `▶ Миссия ${camp.sel}: «${MISSIONS[camp.sel].title}»`;
+  $('cmUnlock').classList.toggle('hidden', camp.done >= MISSIONS.length - 1);
+}
+function openCampMenu() { renderCampMenu(); $('campMenu').classList.remove('hidden'); }
+$('btnCamp').addEventListener('click', () => { audio.init(); openCampMenu(); });
+$('cmClose').addEventListener('click', () => $('campMenu').classList.add('hidden'));
+onSeg('cmDiff', (v) => { camp.diff = Number(v); saveCamp(); renderCampMenu(); });
+$('cmVoice').addEventListener('change', (e) => { camp.voice = e.target.checked; saveCamp(); });
+$('cmMusic').addEventListener('change', (e) => { camp.music = e.target.checked; music.on = camp.music; saveCamp(); });
+$('cmUnlock').addEventListener('click', () => { camp.done = MISSIONS.length - 1; saveCamp(); renderCampMenu(); });
+$('cmStory').addEventListener('click', () => { audio.init(); crawl(STORY); });
+// iOS разрешает синтез речи только после касания — «будим» его пустой фразой
+function unlockVoice() { try { if (camp.voice && 'speechSynthesis' in window) { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } } catch (e) { /* ignore */ } }
+$('cmGo').addEventListener('click', async () => {
+  audio.init(); goFullscreen(); unlockVoice();
+  if (camp.sel === 0 && !camp.seen) { camp.seen = true; saveCamp(); await crawl(STORY); }
+  startMission(camp.sel, 0);
+});
+// текст на чёрном экране: строки появляются по одной (предыстория) или титры
+let crawlSkip = null;
+$('crawlSkip').addEventListener('click', () => crawlSkip && crawlSkip());
+function crawl(lines, credits = false) {
+  return new Promise(async (resolve) => {
+    const el = $('crawl'), box = $('crawlText');
+    el.classList.remove('hidden');
+    box.className = credits ? 'credits' : '';
+    box.innerHTML = '';
+    let done = false;
+    const finish = () => { if (done) return; done = true; crawlSkip = null; try { speechSynthesis.cancel(); } catch (e) { /* ignore */ } el.classList.add('hidden'); music.stop(); resolve(); };
+    crawlSkip = finish;
+    music.on = camp.music; music.play(credits ? 'victory' : 'dread');
+    if (credits) {
+      box.innerHTML = lines.map(l => `<p class="${l[0] === '#' ? 'big' : l[0] === '~' ? 'dim' : ''}">${l.replace(/^[#~]/, '') || '&nbsp;'}</p>`).join('');
+      setTimeout(finish, 72000);
+      return;
+    }
+    for (const l of lines) {
+      if (done) return;
+      const p = document.createElement('p');
+      p.className = l[0] === '#' ? 'big' : l[0] === '~' ? 'dim' : '';
+      const text = l.replace(/^[#~]/, '');
+      p.innerHTML = text || '&nbsp;';
+      box.appendChild(p);
+      while (box.childElementCount > 9) box.firstChild.remove();
+      requestAnimationFrame(() => p.classList.add('on'));
+      let spoken = !text || !camp.voice || !('speechSynthesis' in window);
+      if (!spoken) {
+        try {
+          const u = new SpeechSynthesisUtterance(text.replace(/[«»]/g, '')); u.lang = 'ru-RU'; u.pitch = 0.75; u.rate = 0.98;
+          const v = speechSynthesis.getVoices().find(v => /^ru/i.test(v.lang)); if (v) u.voice = v; else spoken = true;
+          u.onend = u.onerror = () => { spoken = true; };
+          if (!spoken) speechSynthesis.speak(u);
+        } catch (e) { spoken = true; }
+      }
+      const t0 = performance.now(), min = text ? 900 + text.length * 45 : 700;
+      await new Promise(r => { const ch = () => { if (done || (performance.now() - t0 > min && spoken) || performance.now() - t0 > min * 3) r(); else setTimeout(ch, 100); }; ch(); });
+    }
+    await new Promise(r => setTimeout(r, 3500));
+    finish();
+  });
+}
+async function startMission(i, stage) {
+  $('campMenu').classList.add('hidden');
+  if (game) { game.dispose(); game = null; }
+  music.on = camp.music;
+  const n = nick();
+  loading(true, `Миссия ${i}: «${MISSIONS[i].title}»…`);
+  await new Promise(r => setTimeout(r, 40));
+  game = makeGame('solo', null, '');
+  const C = new Campaign({
+    mission: MISSIONS[i], index: i, diff: camp.diff, voice: camp.voice, stage, audio, music, sfx, hasNext: i < MISSIONS.length - 1,
+    onResult: (r) => onMissionResult(i, r),
+    onGo: unlockVoice,
+  });
+  game.startCampaign(C, n);
+  applySize();
+  keepAwake();
+}
+async function onMissionResult(i, r) {
+  if (r.type === 'next' || r.type === 'menu' || r.type === 'end') { camp.done = Math.max(camp.done, Math.min(MISSIONS.length - 1, i + 1)); camp.sel = Math.min(MISSIONS.length - 1, i + 1); saveCamp(); }
+  if (r.type === 'retry') return startMission(i, r.stage || 0);
+  if (r.type === 'next') return startMission(i + 1, 0);
+  exitToMenu('');
+  if (r.type === 'end') { await crawl(CREDITS, true); }
+  openCampMenu();
+}
+$('skipCine').addEventListener('click', () => { if (game && game.campaign) game.campaign.skip(); });
+
 // ---------- цикл ----------
 window.addEventListener('resize', applySize);
 document.addEventListener('fullscreenchange', applySize);
@@ -512,6 +629,7 @@ function loop(t) {
   if (dt <= 0) return;
   if (game && !window.__cbHold) {
     const inp = input.poll();
+    if (paused && game.campaign) return; // в кампании пауза замораживает мир и сценарий
     if (paused) { inp.mx = inp.my = 0; inp.lookX = inp.lookY = 0; inp.fire = inp.jump = inp.place = inp.mine = false; inp.taps = []; }
     game.update(dt, inp);
     // счётчик FPS
@@ -536,7 +654,7 @@ function loop(t) {
 requestAnimationFrame(loop);
 
 // отладка
-window.__cb = { get game() { return game; } };
+window.__cb = { get game() { return game; }, startMission, camp };
 
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
   navigator.serviceWorker.register('sw.js').catch(() => {});

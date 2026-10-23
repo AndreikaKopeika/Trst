@@ -85,7 +85,37 @@
     <button id="leDone" class="primary">Готово</button>
   </div>
   <div id="fps" class="hidden"></div>
+  <!-- кампания -->
+  <div id="campUI" class="hidden">
+    <div id="objPanel"></div>
+    <div id="objMark"><i></i><span></span></div>
+    <div id="campTimer" class="hidden"></div>
+    <div id="campToast"></div>
+    <div id="campHint"></div>
+  </div>
 </div>
+<div id="cineBars"><i></i><i></i></div>
+<div id="subs"></div>
+<div id="stamp"></div>
+<div id="fadeL"></div>
+<button id="skipCine" class="hidden">Пропустить ▶▶</button>
+<div id="mres" class="hidden"></div>
+<div id="brief" class="hidden"><div class="br-scan"></div><div class="br-grid"></div>
+  <div class="br-box"><div class="br-n" id="brN"></div><div class="br-t" id="brT"></div><div class="br-meta" id="brMeta"></div><div class="br-text" id="brText"></div>
+  <button id="brGo" class="primary hidden">▶ НАЧАТЬ</button></div><div class="br-coord" id="brCoord"></div></div>
+<div id="crawl" class="hidden"><div id="crawlText"></div><button id="crawlSkip">Пропустить ▶▶</button></div>
+<div id="campMenu" class="hidden"><div class="cm-bg"></div><div class="cm-card">
+  <button id="cmClose" class="x" aria-label="Закрыть">✕</button>
+  <div class="cm-logo"><small>КАМПАНИЯ</small><b>ПОСЛЕДНЕЕ ЯЙЦО</b><i>Почему курицы стреляют друг в друга</i></div>
+  <div id="cmList"></div>
+  <div class="cm-opts">
+    <div class="seg" id="cmDiff"><button data-v="0">Новобранец</button><button data-v="1">Солдат</button><button data-v="2">Ветеран</button></div>
+    <div class="note" id="cmDiffNote"></div>
+    <label class="row"><span>Голоса по рации (синтез речи)</span><input type="checkbox" id="cmVoice"></label>
+    <label class="row"><span>Музыка</span><input type="checkbox" id="cmMusic"></label>
+  </div>
+  <div class="btnrow"><button id="cmGo" class="primary">▶ Продолжить</button><button id="cmStory">📜 Предыстория</button><button id="cmUnlock">🔓 Открыть все</button></div>
+</div></div>
 
 <!-- ============ МЕНЮ ============ -->
 <div id="menu">
@@ -122,6 +152,7 @@
     <div class="menu-buttons">
       <button id="btnHost" class="primary">Создать комнату</button>
       <div class="join-row"><input id="roomCode" maxlength="4" placeholder="КОД" autocapitalize="characters"><button id="btnJoin">Войти</button></div>
+      <button id="btnCamp" class="camp">🎖 КАМПАНИЯ <small>«Последнее яйцо»</small></button>
       <button id="btnSolo">Играть с ботами (офлайн)</button>
     </div>
     <div id="menuStatus"></div>

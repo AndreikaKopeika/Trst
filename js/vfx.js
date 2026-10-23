@@ -18,7 +18,7 @@ const STEP = 0.1; // шаг симуляции дыма, с
 
 // ---------- тайлящийся шум (генерируется один раз) ----------
 let NOISE = null;
-function noiseTex() {
+export function noiseTex() {
   if (NOISE) return NOISE;
   const size = 128;
   const layer = (seed, oct, base) => {
@@ -60,7 +60,7 @@ function noiseTex() {
 }
 
 // ---------- пачка billboard-квадов (инстансинг) ----------
-class Batch {
+export class Batch {
   constructor(scene, max, material, order) {
     this.max = max; this.n = 0;
     const g = this.geo = new THREE.InstancedBufferGeometry();
@@ -112,10 +112,10 @@ class Batch {
 }
 
 // premultiplied alpha: клуб может и закрывать (дым), и светиться (огонь) одновременно
-const PREMUL = { blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendEquation: THREE.AddEquation, transparent: true, depthWrite: false };
+export const PREMUL = { blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendEquation: THREE.AddEquation, transparent: true, depthWrite: false };
 
 // iA: позиция, размер; iB: цвет дыма, непрозрачность; iC: поворот, зерно шума, жар, скорость клубления
-const SMOKE_VS = `
+export const SMOKE_VS = `
 attribute vec4 iA; attribute vec4 iB; attribute vec4 iC;
 uniform float uFogNear, uFogFar;
 varying vec2 vUv; varying vec2 vRuv; varying vec4 vCol; varying vec3 vMisc; varying float vFog;
@@ -136,8 +136,8 @@ void main() {
   vFog = smoothstep(uFogNear, uFogFar, dist);
   gl_Position = projectionMatrix * mv;
 }`;
-const SMOKE_FS = `
-uniform sampler2D tNoise; uniform float uTime; uniform vec3 uFogColor; uniform vec2 uWind;
+export const SMOKE_FS = `
+uniform sampler2D tNoise; uniform float uTime; uniform vec3 uFogColor; uniform vec2 uWind; uniform vec3 uAmb;
 varying vec2 vUv; varying vec2 vRuv; varying vec4 vCol; varying vec3 vMisc; varying float vFog;
 void main() {
   vec2 p = vRuv - 0.5;
@@ -154,7 +154,7 @@ void main() {
   // освещение: верх светлее, низ и «толща» темнее
   float lit = clamp(0.62 + (vUv.y - 0.5) * 0.65 + (n2 - 0.5) * 0.55 - (1.0 - r) * 0.12, 0.22, 1.2);
   float h = clamp(heat, 0.0, 1.5);
-  vec3 col = vCol.rgb * lit * (1.0 - min(h, 1.0) * 0.85);
+  vec3 col = vCol.rgb * lit * uAmb * (1.0 - min(h, 1.0) * 0.85);
   // жар: раскалённое ядро (жёлто-белое), края — оранжевые и красные, прожилки темнее
   float core = clamp(h * (0.6 + n1 * 0.8) - (r * 0.55), 0.0, 1.5);
   vec3 fire = mix(vec3(0.75, 0.12, 0.01), vec3(1.0, 0.45, 0.05), smoothstep(0.05, 0.45, core));
@@ -434,7 +434,7 @@ export class VFX {
     const fog = scene.fog;
     this.U = {
       tNoise: { value: tex }, uTime: { value: 0 }, uWind: { value: new THREE.Vector2(1, 0) },
-      uFogColor: { value: fog ? fog.color : new THREE.Color(0x9ec9ff) }, uFogNear: { value: 40 }, uFogFar: { value: 120 },
+      uFogColor: { value: fog ? fog.color : new THREE.Color(0x9ec9ff) }, uFogNear: { value: 40 }, uFogFar: { value: 120 }, uAmb: { value: new THREE.Color(1, 1, 1) },
     };
     this.smokeMat = new THREE.ShaderMaterial({ vertexShader: SMOKE_VS, fragmentShader: SMOKE_FS, uniforms: this.U, ...PREMUL });
     this.flameMat = new THREE.ShaderMaterial({ vertexShader: FLAME_VS, fragmentShader: FLAME_FS, uniforms: this.U, ...PREMUL });

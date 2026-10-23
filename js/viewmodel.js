@@ -419,8 +419,8 @@ export class ViewModel {
     const pmrem = new THREE.PMREMGenerator(renderer);
     this.scene.environment = pmrem.fromScene(env, 0.02).texture;
     pmrem.dispose();
-    this.scene.add(new THREE.HemisphereLight(0xeaf4ff, 0x5a4a30, 0.9));
-    const dl = new THREE.DirectionalLight(0xfff0dd, 2.2); dl.position.set(0.6, 1, 0.4); this.scene.add(dl);
+    this.hemiL = new THREE.HemisphereLight(0xeaf4ff, 0x5a4a30, 0.9); this.scene.add(this.hemiL);
+    const dl = this.dirL = new THREE.DirectionalLight(0xfff0dd, 2.2); dl.position.set(0.6, 1, 0.4); this.scene.add(dl);
     this.flashLight = new THREE.PointLight(0xffb060, 0, 1.6, 2); this.scene.add(this.flashLight);
 
     this.root = new THREE.Group(); this.scene.add(this.root);   // точка покачивания
@@ -764,5 +764,10 @@ export class ViewModel {
     r.clearDepth();
     r.render(this.scene, this.camera);
     r.autoClear = ac;
+  }
+  // освещение оружия под сцену (ночь, закат): k — яркость, color — оттенок
+  setLight(k = 1, color = 0xffffff) {
+    this.hemiL.intensity = 0.9 * k; this.dirL.intensity = 2.2 * k;
+    this.hemiL.color.set(0xeaf4ff).multiply(new THREE.Color(color)); this.dirL.color.set(0xfff0dd).multiply(new THREE.Color(color));
   }
 }
